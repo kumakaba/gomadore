@@ -173,14 +173,18 @@ server {
 
     # Serve static assets directly via Nginx
     root /var/lib/gomadore;
+    index index.html;
 
     location /imgs {
-        root /var/lib/gomadore/imgs;
-        try_files $uri =404;
+        alias /var/lib/gomadore/imgs;
         expires 1d;
     }
 
     location / {
+
+        # If 'strict_html_url = true' is enabled, uncomment the following line to rewrite root "/" to "/index.html":
+        # rewrite ^(.*)/$ $1/index.html break;
+
         proxy_pass http://127.0.0.1:18085;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
