@@ -33,7 +33,7 @@ It is designed to serve Markdown files as HTML on-the-fly (Server-Side Rendering
 
 1.  **Clone the repository:**
     ```bash
-    git clone [https://github.com/kumakaba/gomadore.git](https://github.com/kumakaba/gomadore.git)
+    git clone https://github.com/kumakaba/gomadore.git
     cd gomadore
     ```
 
@@ -66,7 +66,7 @@ site_lang = "en"
 site_author = "John Doe"
 
 # CSS Configuration (Class-less CSS recommended)
-base_css_url = "[https://cdn.jsdelivr.net/npm/water.css@2/out/water.css](https://cdn.jsdelivr.net/npm/water.css@2/out/water.css)"
+base_css_url = "https://cdn.jsdelivr.net/npm/water.css@2/out/water.css"
 screen_css_url = "" # Optional custom CSS for screen
 print_css_url = ""  # Optional custom CSS for print
 
@@ -157,7 +157,7 @@ server {
     }
 
     location / {
-        proxy_pass [http://127.0.0.1:18085](http://127.0.0.1:18085);
+        proxy_pass http://127.0.0.1:18085;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

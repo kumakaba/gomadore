@@ -32,7 +32,7 @@ import (
 
 var (
 	Version    = "v1.0.0"           // VERSION_STR
-	Revision   = "preview20251205b" // VERSION_STR
+	Revision   = "preview20251205c" // VERSION_STR
 	Maintainer = "kumakaba"
 )
 
@@ -377,7 +377,7 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if file exists
-	mdContent, err := os.ReadFile(fullPath)
+	mdContent, err := os.ReadFile(absPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			http.NotFound(w, r)
