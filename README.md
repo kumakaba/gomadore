@@ -131,14 +131,36 @@ Given `markdown_rootdir = "./docs"`:
 
 If you want to change the HTML structure, create a template file (e.g., `template.html`). The following variables are available:
 
-* `{{ .Title }}`: Page title (H1 + Site Title)
+* `{{ .Title }}`: Page title (from config)
 * `{{ .Body }}`: Rendered HTML content
 * `{{ .Language }}`: Site language (from config)
 * `{{ .Author }}`: Author name (from config)
-* `{{ .BaseCSS }}`: Base CSS URL
-* `{{ .ScreenCSS }}`: Screen CSS URL
-* `{{ .PrintCSS }}`: Print CSS URL
+* `{{ .BaseCSS }}`: Base CSS URL (from config)
+* `{{ .ScreenCSS }}`: Screen CSS URL (from config)
+* `{{ .PrintCSS }}`: Print CSS URL (from config)
 * `{{ .Filename }}`: Current filename (useful for body ID)
+
+### Default Template
+
+```html
+<!DOCTYPE html>
+<html lang="{{ .Language }}">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ .Title }}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{{ .BaseCSS }}">
+    <link rel="stylesheet" href="{{ .ScreenCSS }}" media="screen">
+    <link rel="stylesheet" href="{{ .PrintCSS }}" media="print">
+</head>
+<body id="{{ .Filename }}">
+    <div class="container markdown-body">
+        {{ .Body }}
+    </div>
+    <div class="author">{{ .Author }}</div>
+</body>
+</html>
+```
 
 ## Nginx Configuration Example
 
