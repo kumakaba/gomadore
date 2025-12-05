@@ -1,3 +1,5 @@
+[![Go](https://github.com/kumakaba/gomadore/actions/workflows/go_cov.yml/badge.svg)](https://github.com/kumakaba/gomadore/actions/workflows/go_cov.yml) [![golangci-lint](https://github.com/kumakaba/gomadore/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/kumakaba/gomadore/actions/workflows/golangci-lint.yml) [![CodeQL Advanced](https://github.com/kumakaba/gomadore/actions/workflows/codeql.yml/badge.svg)](https://github.com/kumakaba/gomadore/actions/workflows/codeql.yml)
+
 # gomadore
 
 **gomadore** (GO MArkDOwn REnderer) is a lightweight, high-performance Markdown web server written in Go (1.25+).
@@ -165,6 +167,13 @@ server {
 }
 ```
 
+## Contributing
+
+This repository is open , but due to time constraints, I am currently unable to review or accept new issues and pull requests.
+If you would like to add features or make changes, please feel free to fork the repository and modify it for your own needs.
+
+
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](/LICENSE) file for details.
+

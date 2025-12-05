@@ -4,6 +4,7 @@
 
 gomadore
 .DS_Store
+config.toml
 
 *.db
 *.log
