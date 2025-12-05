@@ -1,0 +1,12 @@
+/docs/*
+.vscode/
+.idea/
+
+gomadore
+.DS_Store
+
+*.db
+*.log
+
+!.gitkeep
+

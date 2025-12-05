@@ -1,0 +1,27 @@
+[general]
+listen_addr = "127.0.0.1"
+listen_port = 18085
+
+[html]
+# Directory containing your Markdown files and assets
+markdown_rootdir = "./docs"
+
+# Site Metadata
+site_title = "My Documentation"
+site_lang = "en"
+site_author = "John Doe"
+
+# CSS Configuration (Class-less CSS recommended)
+base_css_url = "https://cdn.jsdelivr.net/npm/water.css@2/out/water.css"
+screen_css_url = "" # Optional custom CSS for screen
+print_css_url = ""  # Optional custom CSS for print
+
+# Hot Reload: Set true to watch file changes
+hot_reload = true
+
+# Cache expiration in seconds
+cache_limit = 3600
+
+# Strict HTML URL: If true, URLs must end with ".html"
+strict_html_url = false
+
