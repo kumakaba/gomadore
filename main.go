@@ -575,6 +575,11 @@ func (s *Server) watchFiles(ctx context.Context) {
 				return
 			}
 
+			filename := filepath.Base(event.Name)
+			if strings.HasPrefix(filename, ".") || strings.HasSuffix(filename, "~") {
+				continue
+			}
+
 			if event.Has(fsnotify.Create) {
 				info, err := os.Stat(event.Name)
 				if err == nil && info.IsDir() {
