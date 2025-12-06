@@ -143,7 +143,7 @@ Given `markdown_rootdir = "./docs"`:
      |-- static.jpg
 ```
 
-if `strict_html_url = true` urls **must** end with ".html":
+if `strict_html_url = true`, urls **must** end with ".html":
 
 ```text
 |

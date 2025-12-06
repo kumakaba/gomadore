@@ -34,7 +34,7 @@ import (
 
 var (
 	Version    = "v1.0.0"           // VERSION_STR
-	Revision   = "preview20251206b" // VERSION_STR
+	Revision   = "preview20251206c" // VERSION_STR
 	Maintainer = "kumakaba"
 )
 
@@ -580,6 +580,9 @@ func (s *Server) watchFiles(ctx context.Context) {
 	slog.Info("Hot Reload enabled: Initializing watcher...")
 	addWatchRecursive(s.config.HTML.MarkdownRootDir)
 
+	var debounceTimer *time.Timer
+	const debounceDuration = 100 * time.Millisecond
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -599,7 +602,7 @@ func (s *Server) watchFiles(ctx context.Context) {
 			if event.Has(fsnotify.Create) {
 				info, err := os.Stat(event.Name)
 				if err == nil && info.IsDir() {
-					slog.Debug("New directory detected", "event", event.Name)
+					slog.Debug("New directory detected", "path", event.Name)
 					addWatchRecursive(event.Name)
 				}
 			}
@@ -613,10 +616,17 @@ func (s *Server) watchFiles(ctx context.Context) {
 			}
 
 			if shouldClear {
-				slog.Debug("File/Dir change detected. Clearing cache.", "event", event.Name, "event_op", event.Op)
-				s.cache.Lock()
-				s.cache.items = make(map[string]CacheItem)
-				s.cache.Unlock()
+
+				if debounceTimer != nil {
+					debounceTimer.Stop()
+				}
+
+				debounceTimer = time.AfterFunc(debounceDuration, func() {
+					slog.Debug("File/Dir change detected. Clearing cache.", "path", event.Name, "event", event.Op)
+					s.cache.Lock()
+					s.cache.items = make(map[string]CacheItem)
+					s.cache.Unlock()
+				})
 			}
 
 		case err, ok := <-watcher.Errors:
@@ -632,7 +642,7 @@ func (s *Server) watchFiles(ctx context.Context) {
 
 // startCacheCleaner runs a background ticker to remove expired cache items.
 func (s *Server) startCacheCleaner(interval time.Duration) {
-	slog.Info("Cache GC started.", "interval", interval)
+	slog.Info("Cache GC started.", "interval_sec", int(interval.Seconds()))
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
