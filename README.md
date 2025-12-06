@@ -4,7 +4,7 @@
 
 **gomadore** (GO MArkDOwn REnderer) is a lightweight, high-performance Markdown web server written in Go (1.25+).
 
-> **Note:** "gomadore" stands for **Sesame Dressing**. ("goma" means sesame in Japanese)
+> **Note:** "gomadore" stands for **Goma Dressing**. ("goma" means sesame in Japanese)
 
 It is designed to serve Markdown files as HTML on-the-fly (Server-Side Rendering). It is ideal for internal documentation, personal knowledge bases, or simple blogs, and is intended to run behind a reverse proxy like Nginx or Caddy.
 
@@ -127,7 +127,7 @@ Given `markdown_rootdir = "./docs"`:
 |-- config.toml
 |-- docs/
 |   |-- index.md          -> http://localhost:18085/
-|   |-- about.md          -> http://localhost:18085/about
+|   |-- sample.md         -> http://localhost:18085/sample
 |   |-- project-a/
 |         |-- index.md    -> http://localhost:18085/project-a/
 |         |-- manual.md   -> http://localhost:18085/project-a/manual
@@ -135,6 +135,18 @@ Given `markdown_rootdir = "./docs"`:
 |-- imgs/
      |-- static.png
      |-- static.jpg
+```
+
+if `strict_html_url = true` urls **must** end with ".html":
+
+```text
+|
+|-- docs/
+|   |-- index.md          -> http://localhost:18085/index.html
+|   |-- sample.md         -> http://localhost:18085/sample.html
+|   |-- project-a/
+          |-- index.md    -> http://localhost:18085/project-a/index.html
+          |-- manual.md   -> http://localhost:18085/project-a/manual.html
 ```
 
 ## Custom Templates
@@ -192,7 +204,7 @@ server {
 
     location / {
 
-        # If 'strict_html_url = true' is enabled, uncomment the following line to rewrite root "/" to "/index.html":
+        # If 'strict_html_url = true' is enabled, uncomment the following line:
         # rewrite ^(.*)/$ $1/index.html break;
 
         proxy_pass http://127.0.0.1:18085;

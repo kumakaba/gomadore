@@ -10,7 +10,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -553,4 +555,127 @@ func TestPrintURLList_Error(t *testing.T) {
 			t.Errorf("Unexpected error message: %v", err)
 		}
 	})
+}
+
+func TestGcCacheNeverExpires(t *testing.T) {
+	srv, dir := setupTestServer(t)
+
+	// Set CacheLimit to 0 => "never expires" mode in request logic
+	srv.config.Cache.CacheLimit = 0
+
+	createFile(t, dir, "never.md", "# Never expires")
+	reqPath := "/never"
+
+	// First request: should be MISS and populate cache
+	w1 := httptest.NewRecorder()
+	srv.handleRequest(w1, httptest.NewRequest("GET", reqPath, nil))
+	if got := w1.Result().Header.Get("X-Cache"); got != "MISS" {
+		t.Fatalf("precondition: expected first request X-Cache=MISS, got %q", got)
+	}
+
+	// Manually set Expires to the past to ensure expiration would normally remove it
+	srv.cache.Lock()
+	if item, ok := srv.cache.items[reqPath]; ok {
+		item.Expires = time.Now().Add(-1 * time.Hour)
+		srv.cache.items[reqPath] = item
+	} else {
+		srv.cache.Unlock()
+		t.Fatal("precondition: cache item missing after first request")
+	}
+	srv.cache.Unlock()
+
+	// Second request: Because CacheLimit == 0, handler should treat cached item as valid (HIT)
+	w2 := httptest.NewRecorder()
+	srv.handleRequest(w2, httptest.NewRequest("GET", reqPath, nil))
+	if got := w2.Result().Header.Get("X-Cache"); got != "HIT" {
+		t.Fatalf("expected X-Cache=HIT for never-expire mode, got %q", got)
+	}
+}
+
+func TestGcCacheTTLBoundary(t *testing.T) {
+	srv, dir := setupTestServer(t)
+
+	srv.config.Cache.CacheLimit = 1 // seconds
+
+	createFile(t, dir, "ttl.md", "# TTL test")
+	reqPath := "/ttl"
+
+	// First request to populate cache
+	w1 := httptest.NewRecorder()
+	srv.handleRequest(w1, httptest.NewRequest("GET", reqPath, nil))
+	if got := w1.Result().Header.Get("X-Cache"); got != "MISS" {
+		t.Fatalf("precondition: expected first request X-Cache=MISS, got %q", got)
+	}
+
+	// Shorten Expires to very near-future to create a tight boundary
+	srv.cache.Lock()
+	item, ok := srv.cache.items[reqPath]
+	if !ok {
+		srv.cache.Unlock()
+		t.Fatal("precondition: cache item missing after first request")
+	}
+	item.Expires = time.Now().Add(200 * time.Millisecond)
+	srv.cache.items[reqPath] = item
+	srv.cache.Unlock()
+
+	// Immediate request should be HIT
+	w2 := httptest.NewRecorder()
+	srv.handleRequest(w2, httptest.NewRequest("GET", reqPath, nil))
+	if got := w2.Result().Header.Get("X-Cache"); got != "HIT" {
+		t.Fatalf("expected immediate request X-Cache=HIT, got %q", got)
+	}
+
+	time.Sleep(300 * time.Millisecond)
+
+	w3 := httptest.NewRecorder()
+	srv.handleRequest(w3, httptest.NewRequest("GET", reqPath, nil))
+	if got := w3.Result().Header.Get("X-Cache"); got != "MISS" {
+		t.Fatalf("expected post-expiry request X-Cache=MISS, got %q", got)
+	}
+}
+
+func TestGcConcurrentCacheAccess(t *testing.T) {
+	srv, dir := setupTestServer(t)
+
+	// Use a non-zero TTL so handler checks Expires path
+	srv.config.Cache.CacheLimit = 60
+
+	// Prepare multiple files with deterministic names
+	for i := 0; i < 5; i++ {
+		filename := fmt.Sprintf("concurrent_%d.md", i)
+		createFile(t, dir, filename, "# concurrent")
+	}
+
+	var wg sync.WaitGroup
+	reqs := []string{"/index", "/concurrent_0", "/concurrent_1", "/concurrent_2", "/concurrent_3"}
+	// Fire many concurrent requests
+	for i := 0; i < 50; i++ {
+		for _, p := range reqs {
+			wg.Add(1)
+			go func(path string) {
+				defer wg.Done()
+				w := httptest.NewRecorder()
+				req := httptest.NewRequest("GET", path, nil)
+				// Call handler; we assert it doesn't panic. Make sure to close response body.
+				srv.handleRequest(w, req)
+				resp := w.Result()
+				if resp != nil && resp.Body != nil {
+					_, _ = io.Copy(io.Discard, resp.Body)
+					_ = resp.Body.Close()
+				}
+			}(p)
+		}
+	}
+	wg.Wait()
+
+	// Basic sanity: cache should have at least one item
+	srv.cache.RLock()
+	if len(srv.cache.items) == 0 {
+		srv.cache.RUnlock()
+		t.Fatal("expected cache to contain items after concurrent requests")
+	}
+	srv.cache.RUnlock()
+
+	// Demonstrate correct integer->string conversion (if needed elsewhere)
+	_ = strconv.Itoa(42)
 }
