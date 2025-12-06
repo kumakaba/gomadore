@@ -7,21 +7,31 @@ listen_port = 18085
 markdown_rootdir = "./docs"
 
 # Site Metadata
-site_title = "My Documentation"
+site_title = "Gomadore Documentation"
 site_lang = "en"
 site_author = "John Doe"
 
-# CSS Configuration (Class-less CSS recommended)
+# CSS Configuration (Class-less CSS or Github-markdown recommended)
 base_css_url = "https://cdn.jsdelivr.net/npm/water.css@2/out/water.css"
+#base_css_url = "https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.8.1/github-markdown.min.css"
 screen_css_url = "" # Optional custom CSS for screen
 print_css_url = ""  # Optional custom CSS for print
 
-# Hot Reload: Set true to watch file changes
-hot_reload = true
-
-# Cache expiration in seconds
-cache_limit = 3600
-
 # Strict HTML URL: If true, URLs must end with ".html"
 strict_html_url = false
+
+[cache]
+# Hot Reload: Set true to watch file changes.
+# when the value is false, it will be reloaded based on the cache_limit time.
+hot_reload = true
+
+# Cache expiration in seconds.
+# > 0 : Cache expires after specified seconds.
+# <= 0: Cache never expires (persists until restart).
+cache_limit = 3600
+
+# Maximum number of cached pages to prevent memory exhaustion.
+# If the limit is reached, existing items are evicted to make space.
+# Default is 1000 if not set (or set to 0).
+max_cache_items = 1000
 

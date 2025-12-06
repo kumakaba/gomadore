@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"html/template"
 	"io"
@@ -48,7 +49,7 @@ func setupTestServer(t *testing.T) (*Server, string) {
 	// Initialize Server struct
 	cfg := Config{}
 	cfg.HTML.MarkdownRootDir = tempDir
-	cfg.HTML.CacheLimit = 60
+	cfg.Cache.CacheLimit = 60
 	cfg.HTML.StrictHtmlUrl = false // Set to false for testing (default behavior)
 
 	tmpl, _ := template.New("base").Parse(`{{.Body}}`) // Simple template
@@ -194,7 +195,7 @@ func TestCacheLogic(t *testing.T) {
 		w := httptest.NewRecorder()
 		srv.handleRequest(w, req)
 
-		expected := fmt.Sprintf("max-age=%d", srv.config.HTML.CacheLimit)
+		expected := fmt.Sprintf("max-age=%d", srv.config.Cache.CacheLimit)
 		if got := w.Result().Header.Get("Cache-Control"); got != expected {
 			t.Errorf("Cache-Control: got %s, want %s", got, expected)
 		}
@@ -224,7 +225,7 @@ func TestPrintURLList(t *testing.T) {
 		cfg.HTML.StrictHtmlUrl = false
 
 		output := captureStdout(t, func() {
-			printURLList(cfg)
+			_ = printURLList(cfg)
 		})
 
 		// Expected output (Sorted)
@@ -242,7 +243,7 @@ func TestPrintURLList(t *testing.T) {
 		cfg.HTML.StrictHtmlUrl = true
 
 		output := captureStdout(t, func() {
-			printURLList(cfg)
+			_ = printURLList(cfg)
 		})
 
 		// Expected output (Index treated as index.html in Strict mode)
@@ -364,15 +365,16 @@ func TestHotReload(t *testing.T) {
 	srv, dir := setupTestServer(t)
 
 	// Enable HotReload
-	srv.config.HTML.HotReload = true
+	srv.config.Cache.HotReload = true
 
 	// Start Watcher in a separate goroutine
-	// Note: Since the current implementation has no stop mechanism, it runs until test ends,
-	// which is acceptable for a single test process.
-	go srv.watchFiles()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go srv.watchFiles(ctx)
 
 	// Wait for Watcher to start (considering OS lag)
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// Preparation: Insert dummy data into cache
 	targetPath := "/index"
@@ -401,7 +403,7 @@ func TestHotReload(t *testing.T) {
 	// Since filesystem events are asynchronous, we need to wait for processing to complete.
 	// Strictly speaking, synchronization via channels is better, but Sleep is standard for simple implementations.
 	// Longer time (e.g., 500ms) might be needed depending on the environment.
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// Verify: Check if cache is cleared
 	srv.cache.RLock()
@@ -411,4 +413,144 @@ func TestHotReload(t *testing.T) {
 	if count != 0 {
 		t.Errorf("HotReload failed: Cache should be cleared after file modification. Item count: %d", count)
 	}
+}
+
+func TestCacheCleanup(t *testing.T) {
+	srv, _ := setupTestServer(t)
+
+	srv.cache.Lock()
+
+	// Case 1: Expired item (1 hour ago)
+	srv.cache.items["/expired"] = CacheItem{
+		Content: []byte("expired data"),
+		Expires: time.Now().Add(-1 * time.Hour),
+	}
+	// Case 2: Valid item (1 hour later)
+	srv.cache.items["/valid"] = CacheItem{
+		Content: []byte("valid data"),
+		Expires: time.Now().Add(1 * time.Hour),
+	}
+	srv.cache.Unlock()
+
+	// Execute cleanup manually
+	srv.cleanup()
+
+	// Verify
+	srv.cache.RLock()
+	defer srv.cache.RUnlock()
+
+	// Expired item should be removed
+	if _, ok := srv.cache.items["/expired"]; ok {
+		t.Error("Expired item was not removed")
+	}
+
+	// Valid item should remain
+	if _, ok := srv.cache.items["/valid"]; !ok {
+		t.Error("Valid item was incorrectly removed")
+	}
+}
+
+func TestCacheCleaner_Integration(t *testing.T) {
+	srv, _ := setupTestServer(t)
+
+	srv.cache.Lock()
+	srv.cache.items["/auto-expired"] = CacheItem{
+		Content: []byte("data"),
+		Expires: time.Now().Add(-1 * time.Hour),
+	}
+	srv.cache.Unlock()
+
+	// Start cleaner with a very short interval (e.g., 10ms) for testing
+	// Note: We bypass the "minimum 60s" logic in main() by calling the method directly.
+	go srv.startCacheCleaner(10 * time.Millisecond)
+
+	// Wait for the cleaner to run (slightly longer than the interval)
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify
+	srv.cache.RLock()
+	_, found := srv.cache.items["/auto-expired"]
+	srv.cache.RUnlock()
+
+	if found {
+		t.Error("Background cleaner failed to remove expired item")
+	}
+}
+
+func TestMaxCacheItems(t *testing.T) {
+	srv, dir := setupTestServer(t)
+
+	createFile(t, dir, "page1.md", "# Page 1")
+	createFile(t, dir, "page2.md", "# Page 2")
+	createFile(t, dir, "page3.md", "# Page 3")
+
+	srv.config.Cache.MaxCacheItems = 2
+
+	// Request page1 (Cache: 1/2)
+	req1 := httptest.NewRequest("GET", "/page1", nil)
+	srv.handleRequest(httptest.NewRecorder(), req1)
+
+	// Request page2 (Cache: 2/2 -> Full)
+	req2 := httptest.NewRequest("GET", "/page2", nil)
+	srv.handleRequest(httptest.NewRecorder(), req2)
+
+	srv.cache.RLock()
+	if len(srv.cache.items) != 2 {
+		t.Errorf("Expected 2 items, got %d", len(srv.cache.items))
+	}
+	srv.cache.RUnlock()
+
+	// Request page3 (Cache Overflow -> Should evict one old item)
+	req3 := httptest.NewRequest("GET", "/page3", nil)
+	srv.handleRequest(httptest.NewRecorder(), req3)
+
+	// Verify results
+	srv.cache.RLock()
+	defer srv.cache.RUnlock()
+
+	// Check count (Must stay at 2)
+	if len(srv.cache.items) != 2 {
+		t.Errorf("Cache size exceeded limit. Expected 2, got %d", len(srv.cache.items))
+	}
+
+	// Check if the new item is present
+	if _, found := srv.cache.items["/page3"]; !found {
+		t.Error("The newest item (/page3) should be in the cache")
+	}
+
+}
+
+func TestPrintURLList_Error(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Case 1: Directory does not exist
+	t.Run("Root Not Exist", func(t *testing.T) {
+		cfg := Config{}
+		cfg.HTML.MarkdownRootDir = filepath.Join(tempDir, "non_existent")
+
+		err := printURLList(cfg)
+		if err == nil {
+			t.Error("Expected error for non-existent root, got nil")
+		}
+		if !strings.Contains(err.Error(), "does not exist") {
+			t.Errorf("Unexpected error message: %v", err)
+		}
+	})
+
+	// Case 2: Root is a file
+	t.Run("Root is File", func(t *testing.T) {
+		filePath := filepath.Join(tempDir, "file.txt")
+		createFile(t, tempDir, "file.txt", "content")
+
+		cfg := Config{}
+		cfg.HTML.MarkdownRootDir = filePath
+
+		err := printURLList(cfg)
+		if err == nil {
+			t.Error("Expected error for file root, got nil")
+		}
+		if !strings.Contains(err.Error(), "is not a directory") {
+			t.Errorf("Unexpected error message: %v", err)
+		}
+	})
 }

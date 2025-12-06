@@ -1,4 +1,4 @@
-module gomadore
+module github.com/kumakaba/gomadore
 
 go 1.25.5
 

@@ -32,7 +32,7 @@ import (
 
 var (
 	Version    = "v1.0.0"           // VERSION_STR
-	Revision   = "preview20251205c" // VERSION_STR
+	Revision   = "preview20251206a" // VERSION_STR
 	Maintainer = "kumakaba"
 )
 
@@ -50,10 +50,13 @@ type Config struct {
 		BaseCSSUrl      string `toml:"base_css_url"`
 		ScreenCSSUrl    string `toml:"screen_css_url"`
 		PrintCSSUrl     string `toml:"print_css_url"`
-		HotReload       bool   `toml:"hot_reload"`
-		CacheLimit      int    `toml:"cache_limit"`
 		StrictHtmlUrl   bool   `toml:"strict_html_url"`
 	} `toml:"html"`
+	Cache struct {
+		HotReload     bool `toml:"hot_reload"`
+		CacheLimit    int  `toml:"cache_limit"`
+		MaxCacheItems int  `toml:"max_cache_items"`
+	} `toml:"cache"`
 }
 
 // --- Cache Structs ---
@@ -132,8 +135,17 @@ func main() {
 
 	// URL list mode
 	if *listMode {
-		printURLList(cfg)
+		if err := printURLList(cfg); err != nil {
+			log.Fatalf("Failed to list URLs: %v", err)
+		}
 		os.Exit(0)
+	}
+
+	if cfg.Cache.CacheLimit < 0 {
+		cfg.Cache.CacheLimit = 0
+	}
+	if cfg.Cache.MaxCacheItems < 1 {
+		cfg.Cache.MaxCacheItems = 1000
 	}
 
 	// Initialize server
@@ -169,9 +181,26 @@ func main() {
 	}
 	srv.tmpl = t
 
+	// Start background cache cleaner (Garbage Collection)
+	// Only start if CacheLimit is positive.
+	// If CacheLimit <= 0, cache is treated as indefinite (never expires), so GC is not needed.
+	if cfg.Cache.CacheLimit > 0 {
+		// Set cleanup interval to half of the cache limit.
+		// Enforce a minimum interval of 60 seconds to prevent excessive locking overhead.
+		cleanupInterval := time.Duration(cfg.Cache.CacheLimit) * time.Second / 2
+		if cleanupInterval < 60*time.Second {
+			cleanupInterval = 60 * time.Second
+		}
+		go srv.startCacheCleaner(cleanupInterval)
+	}
+
+	// Context for managing lifecycle of background goroutines (watcher, cleaner)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Setup Hot Reload if enabled
-	if cfg.HTML.HotReload {
-		go srv.watchFiles()
+	if cfg.Cache.HotReload {
+		go srv.watchFiles(ctx)
 	}
 
 	// HTTP Server setup
@@ -203,10 +232,10 @@ func main() {
 	log.Println("Shutting down server...")
 
 	// Shutdown with 5-second timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	sctx, scancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer scancel()
 
-	if err := httpSrv.Shutdown(ctx); err != nil {
+	if err := httpSrv.Shutdown(sctx); err != nil {
 		log.Fatalf("Server forced to shutdown: %v", err)
 	}
 
@@ -214,8 +243,21 @@ func main() {
 }
 
 // --- Logic to print available URLs ---
-func printURLList(cfg Config) {
+func printURLList(cfg Config) error {
 	root := cfg.HTML.MarkdownRootDir
+
+	// Check if root directory exists and is a directory
+	info, err := os.Stat(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("markdown root directory does not exist: %s", root)
+		}
+		return fmt.Errorf("accessing Markdown root directory: %v", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("markdown root is not a directory: %s", root)
+	}
+
 	host := cfg.General.ListenAddr
 	if host == "0.0.0.0" || host == "" {
 		host = "127.0.0.1"
@@ -226,7 +268,7 @@ func printURLList(cfg Config) {
 	var urls []string
 
 	// Walk through directory
-	err := filepath.WalkDir(root, func(pathStr string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(pathStr string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -276,7 +318,7 @@ func printURLList(cfg Config) {
 	})
 
 	if err != nil {
-		log.Fatalf("Directory walk error: %v", err)
+		return fmt.Errorf("directory walk error: %v", err)
 	}
 
 	// Sort and print
@@ -286,6 +328,7 @@ func printURLList(cfg Config) {
 	for _, u := range urls {
 		fmt.Println(u)
 	}
+	return nil
 }
 
 // --- Request Handler ---
@@ -340,11 +383,25 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 	item, found := s.cache.items[reqPath]
 	s.cache.RUnlock()
 
+	// Determine if the cached item is valid.
+	// If CacheLimit > 0, check the expiration time.
+	// If CacheLimit <= 0, the cache never expires (valid until restart).
+	isCacheValid := found
+	if s.config.Cache.CacheLimit > 0 {
+		isCacheValid = found && time.Now().Before(item.Expires)
+	}
+
 	// Return cached content if hit and valid
-	if found && time.Now().Before(item.Expires) {
+	if isCacheValid {
 		w.Header().Set("X-Cache", "HIT")
+
 		// Set browser cache (max-age)
-		w.Header().Set("Cache-Control", fmt.Sprintf("max-age=%d", s.config.HTML.CacheLimit))
+		if s.config.Cache.CacheLimit > 0 {
+			w.Header().Set("Cache-Control", fmt.Sprintf("max-age=%d", s.config.Cache.CacheLimit))
+		} else {
+			// For indefinite server-side cache, instruct the browser to cache for a long duration (e.g., 1 day).
+			w.Header().Set("Cache-Control", "max-age=86400")
+		}
 
 		if _, err := w.Write(item.Content); err != nil {
 			log.Printf("Failed to write response (cache hit): %v", err)
@@ -359,18 +416,23 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 	staticPath := filepath.Join(s.config.HTML.MarkdownRootDir, filepath.FromSlash(reqPath))
 	fullPath := staticPath + ".md"
 
-	// Security Check: Prevent directory traversal (ensure path is inside root)
 	absRoot, err := filepath.Abs(s.config.HTML.MarkdownRootDir)
 	if err != nil {
-		http.Error(w, "Internal Server Error", 500)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 	absPath, err := filepath.Abs(fullPath)
 	if err != nil {
-		http.Error(w, "Internal Server Error", 500)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
-	if !strings.HasPrefix(absPath, absRoot) {
+
+	rel, err := filepath.Rel(absRoot, absPath)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 		log.Printf("Attack attempt detected: %s", r.URL.Path)
 		http.NotFound(w, r)
 		return
@@ -383,7 +445,7 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		http.Error(w, "Internal Server Error", 500)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
@@ -412,7 +474,7 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 	// Render to HTML
 	var buf bytes.Buffer
 	if err := s.md.Renderer().Render(&buf, mdContent, doc); err != nil {
-		http.Error(w, "Markdown conversion failed", 500)
+		http.Error(w, "Markdown conversion failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -429,7 +491,7 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 		"Body":      template.HTML(buf.String()),
 	})
 	if err != nil {
-		http.Error(w, "Template execution failed", 500)
+		http.Error(w, "Template execution failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -437,14 +499,27 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	// Save to cache
 	s.cache.Lock()
+
+	// Enforce Maximum Cache Items limit.
+	// If the cache is full and we are adding a new item, evict one item to make space.
+	// Note: We use random eviction (Go's map iteration is random) which is simple and effective enough.
+	if s.config.Cache.MaxCacheItems > 0 && len(s.cache.items) >= s.config.Cache.MaxCacheItems {
+		if _, exists := s.cache.items[reqPath]; !exists {
+			for k := range s.cache.items {
+				delete(s.cache.items, k)
+				break // Delete one item and exit
+			}
+		}
+	}
+
 	s.cache.items[reqPath] = CacheItem{
 		Content: respBody,
-		Expires: time.Now().Add(time.Duration(s.config.HTML.CacheLimit) * time.Second),
+		Expires: time.Now().Add(time.Duration(s.config.Cache.CacheLimit) * time.Second),
 	}
 	s.cache.Unlock()
 
 	w.Header().Set("X-Cache", "MISS")
-	w.Header().Set("Cache-Control", fmt.Sprintf("max-age=%d", s.config.HTML.CacheLimit))
+	w.Header().Set("Cache-Control", fmt.Sprintf("max-age=%d", s.config.Cache.CacheLimit))
 
 	// Check for write errors
 	if _, err := w.Write(respBody); err != nil {
@@ -453,13 +528,13 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- File Watcher (Hot Reload) ---
-func (s *Server) watchFiles() {
+
+func (s *Server) watchFiles(ctx context.Context) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Println("Watcher error:", err)
 		return
 	}
-	// Error handling within defer
 	defer func() {
 		if err := watcher.Close(); err != nil {
 			log.Printf("Failed to close watcher: %v", err)
@@ -473,7 +548,6 @@ func (s *Server) watchFiles() {
 				return err
 			}
 			if d.IsDir() {
-				// Add directory to watcher
 				if err := watcher.Add(pathStr); err != nil {
 					log.Printf("Failed to add to watcher: %s, %v", pathStr, err)
 				} else {
@@ -486,33 +560,39 @@ func (s *Server) watchFiles() {
 			log.Printf("Directory walk error: %v", err)
 		}
 	}
+
 	log.Println("Hot Reload enabled: Initializing watcher...")
 	addWatchRecursive(s.config.HTML.MarkdownRootDir)
 
 	for {
 		select {
+		case <-ctx.Done():
+			log.Println("Stopping file watcher...")
+			return
+
 		case event, ok := <-watcher.Events:
 			if !ok {
 				return
 			}
-			// Monitor directory structure
+
 			if event.Has(fsnotify.Create) {
 				info, err := os.Stat(event.Name)
 				if err == nil && info.IsDir() {
 					log.Printf("New directory detected: %s", event.Name)
-					if err := watcher.Add(event.Name); err != nil {
-						log.Printf("Failed to add watcher for new directory: %v", err)
-					}
+					addWatchRecursive(event.Name)
 				}
 			}
-			// Ignore non-md files
-			isMdFile := strings.HasSuffix(event.Name, ".md")
 
-			// If written or created
-			if (event.Has(fsnotify.Write) || event.Has(fsnotify.Create)) && isMdFile {
-				log.Printf("File changed: %s. Clearing cache.", event.Name)
+			shouldClear := false
 
-				// Clear entire cache
+			if strings.HasSuffix(event.Name, ".md") {
+				shouldClear = true
+			} else if event.Has(fsnotify.Rename) || event.Has(fsnotify.Remove) {
+				shouldClear = true
+			}
+
+			if shouldClear {
+				log.Printf("File/Dir change detected (%s): %s. Clearing cache.", event.Op, event.Name)
 				s.cache.Lock()
 				s.cache.items = make(map[string]CacheItem)
 				s.cache.Unlock()
@@ -524,5 +604,38 @@ func (s *Server) watchFiles() {
 			}
 			log.Println("Watcher error:", err)
 		}
+	}
+}
+
+// --- Cache Cleanup (Garbage Collection) ---
+
+// startCacheCleaner runs a background ticker to remove expired cache items.
+func (s *Server) startCacheCleaner(interval time.Duration) {
+	log.Printf("Cache GC started. Interval: %v", interval)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		s.cleanup()
+	}
+}
+
+// cleanup scans the cache map and removes expired items.
+func (s *Server) cleanup() {
+	s.cache.Lock()
+	defer s.cache.Unlock()
+
+	now := time.Now()
+	deletedCount := 0
+
+	for key, item := range s.cache.items {
+		if now.After(item.Expires) {
+			delete(s.cache.items, key)
+			deletedCount++
+		}
+	}
+
+	if deletedCount > 0 {
+		log.Printf("Cache GC: Removed %d expired items.", deletedCount)
 	}
 }
