@@ -58,6 +58,12 @@ Create a `config.toml` file in the root directory.
 listen_addr = "127.0.0.1"
 listen_port = 18085
 
+# Log Level: "debug", "info", "error" (Default: "info")
+log_level = "info"
+
+# Log Type: "text", "json" (Default: "text")
+log_type = "text"
+
 [html]
 # Directory containing your Markdown files and assets
 markdown_rootdir = "./docs"

@@ -6,8 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -32,7 +34,7 @@ import (
 
 var (
 	Version    = "v1.0.0"           // VERSION_STR
-	Revision   = "preview20251206a" // VERSION_STR
+	Revision   = "preview20251206b" // VERSION_STR
 	Maintainer = "kumakaba"
 )
 
@@ -41,6 +43,8 @@ type Config struct {
 	General struct {
 		ListenAddr string `toml:"listen_addr" validate:"required"`
 		ListenPort int    `toml:"listen_port" validate:"required"`
+		LogLevel   string `toml:"log_level" validate:"omitempty,oneof=debug info error"`
+		LogType    string `toml:"log_type" validate:"omitempty,oneof=text json"`
 	} `toml:"general"`
 	HTML struct {
 		MarkdownRootDir string `toml:"markdown_rootdir" validate:"required"`
@@ -118,6 +122,11 @@ func main() {
 		log.Fatalf("Failed to load configuration file (%s): %v", *configPath, err)
 	}
 
+	// Setup Logger(slog)
+	setupLogger(os.Stderr, cfg.General.LogLevel, cfg.General.LogType)
+
+	slog.Info("Setup gomadore", "version", Version, "revision", Revision)
+
 	// Validation
 	validate := validator.New()
 	validate.RegisterTagNameFunc(func(fld reflect.StructField) string {
@@ -130,13 +139,15 @@ func main() {
 	})
 	verr := validate.Struct(cfg)
 	if verr != nil {
-		log.Fatalf("Configuration validation failed (%s): %v", *configPath, verr)
+		slog.Error("Configuration validation failed", "config_path", *configPath, "err", verr)
+		os.Exit(1)
 	}
 
 	// URL list mode
 	if *listMode {
 		if err := printURLList(cfg); err != nil {
-			log.Fatalf("Failed to list URLs: %v", err)
+			slog.Error("Failed to list URLs", "err", err)
+			os.Exit(1)
 		}
 		os.Exit(0)
 	}
@@ -168,7 +179,8 @@ func main() {
 		// Load from file if -h is provided
 		tmplBytes, readErr := os.ReadFile(*tmplPath)
 		if readErr != nil {
-			log.Fatalf("Failed to read template file (%s): %v", *tmplPath, readErr)
+			slog.Error("Failed to read template file", "tmpl_path", *tmplPath, "err", readErr)
+			os.Exit(1)
 		}
 		t, err = template.New("base").Parse(string(tmplBytes))
 	} else {
@@ -177,7 +189,8 @@ func main() {
 	}
 
 	if err != nil {
-		log.Fatalf("Failed to parse template: %v", err)
+		slog.Error("Failed to parse template", "err", err)
+		os.Exit(1)
 	}
 	srv.tmpl = t
 
@@ -218,9 +231,10 @@ func main() {
 
 	// Start server
 	go func() {
-		log.Printf("Server starting at %s ...", addr)
+		slog.Info("Server starting", "addr", addr)
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server launch failed: %v", err)
+			slog.Error("Server launch failed", "err", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -229,17 +243,18 @@ func main() {
 	// Monitor SIGINT (Ctrl+C) and SIGTERM (kill)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit // Block until signal received
-	log.Println("Shutting down server...")
+	slog.Info("Shutting down server...")
 
 	// Shutdown with 5-second timeout
 	sctx, scancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer scancel()
 
 	if err := httpSrv.Shutdown(sctx); err != nil {
-		log.Fatalf("Server forced to shutdown: %v", err)
+		slog.Error("Server forced to shutdown", "err", err)
+		os.Exit(1)
 	}
 
-	log.Println("Server exiting")
+	slog.Info("Server exiting")
 }
 
 // --- Logic to print available URLs ---
@@ -404,7 +419,7 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if _, err := w.Write(item.Content); err != nil {
-			log.Printf("Failed to write response (cache hit): %v", err)
+			slog.Debug("Failed to write response (cache hit)", "err", err)
 		}
 		return
 	}
@@ -433,7 +448,7 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-		log.Printf("Attack attempt detected: %s", r.URL.Path)
+		slog.Info("Attack attempt detected", "path", r.URL.Path, "remote_addr", r.RemoteAddr)
 		http.NotFound(w, r)
 		return
 	}
@@ -523,7 +538,7 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	// Check for write errors
 	if _, err := w.Write(respBody); err != nil {
-		log.Printf("Failed to write response (fresh): %v", err)
+		slog.Info("Failed to write response (fresh)", "err", err)
 	}
 }
 
@@ -532,12 +547,12 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 func (s *Server) watchFiles(ctx context.Context) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		log.Println("Watcher error:", err)
+		slog.Error("Watcher error", "err", err)
 		return
 	}
 	defer func() {
 		if err := watcher.Close(); err != nil {
-			log.Printf("Failed to close watcher: %v", err)
+			slog.Error("Failed to close watcher", "err", err)
 		}
 	}()
 
@@ -547,27 +562,28 @@ func (s *Server) watchFiles(ctx context.Context) {
 			if err != nil {
 				return err
 			}
+			pathStr = filepath.ToSlash(filepath.Clean(pathStr))
 			if d.IsDir() {
 				if err := watcher.Add(pathStr); err != nil {
-					log.Printf("Failed to add to watcher: %s, %v", pathStr, err)
+					slog.Error("Failed to add to watcher", "path", pathStr, "err", err)
 				} else {
-					log.Printf("Watching dir: %s", pathStr)
+					slog.Debug("Watching dir", "path", pathStr)
 				}
 			}
 			return nil
 		})
 		if err != nil {
-			log.Printf("Directory walk error: %v", err)
+			slog.Error("Directory walk error", "err", err)
 		}
 	}
 
-	log.Println("Hot Reload enabled: Initializing watcher...")
+	slog.Info("Hot Reload enabled: Initializing watcher...")
 	addWatchRecursive(s.config.HTML.MarkdownRootDir)
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("Stopping file watcher...")
+			slog.Info("Stopping file watcher...")
 			return
 
 		case event, ok := <-watcher.Events:
@@ -583,7 +599,7 @@ func (s *Server) watchFiles(ctx context.Context) {
 			if event.Has(fsnotify.Create) {
 				info, err := os.Stat(event.Name)
 				if err == nil && info.IsDir() {
-					log.Printf("New directory detected: %s", event.Name)
+					slog.Debug("New directory detected", "event", event.Name)
 					addWatchRecursive(event.Name)
 				}
 			}
@@ -597,7 +613,7 @@ func (s *Server) watchFiles(ctx context.Context) {
 			}
 
 			if shouldClear {
-				log.Printf("File/Dir change detected (%s): %s. Clearing cache.", event.Op, event.Name)
+				slog.Debug("File/Dir change detected. Clearing cache.", "event", event.Name, "event_op", event.Op)
 				s.cache.Lock()
 				s.cache.items = make(map[string]CacheItem)
 				s.cache.Unlock()
@@ -607,7 +623,7 @@ func (s *Server) watchFiles(ctx context.Context) {
 			if !ok {
 				return
 			}
-			log.Println("Watcher error:", err)
+			slog.Error("Watcher error", "err", err)
 		}
 	}
 }
@@ -616,7 +632,7 @@ func (s *Server) watchFiles(ctx context.Context) {
 
 // startCacheCleaner runs a background ticker to remove expired cache items.
 func (s *Server) startCacheCleaner(interval time.Duration) {
-	log.Printf("Cache GC started. Interval: %v", interval)
+	slog.Info("Cache GC started.", "interval", interval)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -641,6 +657,36 @@ func (s *Server) cleanup() {
 	}
 
 	if deletedCount > 0 {
-		log.Printf("Cache GC: Removed %d expired items.", deletedCount)
+		slog.Debug("Cache GC finished", "removed_count", deletedCount)
 	}
+}
+
+// --- Logger Setup ---
+func setupLogger(w io.Writer, levelStr, typeStr string) {
+	var level slog.Level
+	switch strings.ToLower(levelStr) {
+	case "debug":
+		level = slog.LevelDebug
+	case "info":
+		level = slog.LevelInfo
+	case "error":
+		level = slog.LevelError
+	default:
+		level = slog.LevelInfo
+	}
+
+	opts := &slog.HandlerOptions{
+		Level: level,
+	}
+
+	var handler slog.Handler
+	switch strings.ToLower(typeStr) {
+	case "json":
+		handler = slog.NewJSONHandler(w, opts)
+	default:
+		handler = slog.NewTextHandler(w, opts)
+	}
+
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -678,4 +679,76 @@ func TestGcConcurrentCacheAccess(t *testing.T) {
 
 	// Demonstrate correct integer->string conversion (if needed elsewhere)
 	_ = strconv.Itoa(42)
+}
+
+func TestSetupLogger(t *testing.T) {
+	tests := []struct {
+		name        string
+		level       string
+		logType     string
+		logFunc     func()
+		wantContain string
+		wantMissing string
+	}{
+		{
+			name:    "Level Info (Debug should be hidden)",
+			level:   "info",
+			logType: "text",
+			logFunc: func() {
+				slog.Info("info message")
+				slog.Debug("debug message")
+			},
+			wantContain: "msg=\"info message\"",
+			wantMissing: "debug message",
+		},
+		{
+			name:    "Level Debug (Debug should be shown)",
+			level:   "debug",
+			logType: "text",
+			logFunc: func() {
+				slog.Debug("debug message")
+			},
+			wantContain: "msg=\"debug message\"",
+		},
+		{
+			name:    "Format JSON",
+			level:   "info",
+			logType: "json",
+			logFunc: func() {
+				slog.Info("json message", "key", "val")
+			},
+			wantContain: `"msg":"json message","key":"val"`,
+		},
+		{
+			name:    "Invalid Level Fallback (Default to Info)",
+			level:   "unknown_level",
+			logType: "text",
+			logFunc: func() {
+				slog.Info("info message")
+				slog.Debug("debug message")
+			},
+			wantContain: "msg=\"info message\"",
+			wantMissing: "debug message",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+
+			setupLogger(&buf, tt.level, tt.logType)
+
+			tt.logFunc()
+
+			output := buf.String()
+
+			if tt.wantContain != "" && !strings.Contains(output, tt.wantContain) {
+				t.Errorf("Log output missing expected content.\nExpected to contain: %s\nGot:\n%s", tt.wantContain, output)
+			}
+
+			if tt.wantMissing != "" && strings.Contains(output, tt.wantMissing) {
+				t.Errorf("Log output contained unexpected content.\nExpected NOT to contain: %s\nGot:\n%s", tt.wantMissing, output)
+			}
+		})
+	}
 }
