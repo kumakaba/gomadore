@@ -1,4 +1,5 @@
 /docs/*
+/dist/*
 .vscode/
 .idea/
 
@@ -13,3 +14,5 @@ config.toml
 !/docs/sample.md
 !.gitkeep
 
+# Added by goreleaser init:
+dist/
