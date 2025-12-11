@@ -465,7 +465,7 @@ func TestCacheCleaner_Integration(t *testing.T) {
 
 	// Start cleaner with a very short interval (e.g., 10ms) for testing
 	// Note: We bypass the "minimum 60s" logic in main() by calling the method directly.
-	go srv.startCacheCleaner(10 * time.Millisecond)
+	go srv.startCacheCleaner(context.Background(), 10*time.Millisecond)
 
 	// Wait for the cleaner to run (slightly longer than the interval)
 	time.Sleep(50 * time.Millisecond)

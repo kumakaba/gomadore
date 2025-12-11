@@ -16,7 +16,7 @@ import (
 	"path"
 	"path/filepath"
 	"reflect"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -33,8 +33,8 @@ import (
 )
 
 var (
-	Version    = "v1.0.0"  // VERSION_STR
-	Revision   = "release" // VERSION_STR
+	Version    = "v1.0.1"           // VERSION_STR
+	Revision   = "preview20251211a" // VERSION_STR
 	Maintainer = "kumakaba"
 )
 
@@ -194,6 +194,10 @@ func main() {
 	}
 	srv.tmpl = t
 
+	// Context for managing lifecycle of background goroutines (watcher, cleaner)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Start background cache cleaner (Garbage Collection)
 	// Only start if CacheLimit is positive.
 	// If CacheLimit <= 0, cache is treated as indefinite (never expires), so GC is not needed.
@@ -204,12 +208,8 @@ func main() {
 		if cleanupInterval < 60*time.Second {
 			cleanupInterval = 60 * time.Second
 		}
-		go srv.startCacheCleaner(cleanupInterval)
+		go srv.startCacheCleaner(ctx, cleanupInterval)
 	}
-
-	// Context for managing lifecycle of background goroutines (watcher, cleaner)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	// Setup Hot Reload if enabled
 	if cfg.Cache.HotReload {
@@ -218,10 +218,10 @@ func main() {
 
 	// HTTP Server setup
 	mux := http.NewServeMux()
-	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
-	mux.HandleFunc("/", srv.handleRequest)
+	mux.HandleFunc("GET /", srv.handleRequest)
 	addr := fmt.Sprintf("%s:%d", cfg.General.ListenAddr, cfg.General.ListenPort)
 
 	httpSrv := &http.Server{
@@ -338,7 +338,7 @@ func printURLList(cfg Config) error {
 
 	// Sort and print
 	// Simple string sort ensures shorter paths (parent dir/index) come first
-	sort.Strings(urls)
+	slices.Sort(urls)
 
 	for _, u := range urls {
 		fmt.Println(u)
@@ -624,7 +624,7 @@ func (s *Server) watchFiles(ctx context.Context) {
 				debounceTimer = time.AfterFunc(debounceDuration, func() {
 					slog.Debug("File/Dir change detected. Clearing cache.", "path", event.Name, "event", event.Op)
 					s.cache.Lock()
-					s.cache.items = make(map[string]CacheItem)
+					clear(s.cache.items)
 					s.cache.Unlock()
 				})
 			}
@@ -641,33 +641,57 @@ func (s *Server) watchFiles(ctx context.Context) {
 // --- Cache Cleanup (Garbage Collection) ---
 
 // startCacheCleaner runs a background ticker to remove expired cache items.
-func (s *Server) startCacheCleaner(interval time.Duration) {
+func (s *Server) startCacheCleaner(ctx context.Context, interval time.Duration) {
+
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("Panic recovered in startCacheCleaner", "err", r)
+		}
+	}()
+
 	slog.Info("Cache GC started.", "interval_sec", int(interval.Seconds()))
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		s.cleanup()
+	for {
+		select {
+		case <-ctx.Done():
+			// for Graceful Shutdown
+			slog.Info("Cache GC stopping...")
+			return
+		case <-ticker.C:
+			s.cleanup()
+		}
 	}
 }
 
 // cleanup scans the cache map and removes expired items.
 func (s *Server) cleanup() {
-	s.cache.Lock()
-	defer s.cache.Unlock()
 
+	// check clear target on RLock
+	s.cache.RLock()
 	now := time.Now()
-	deletedCount := 0
-
+	keysToDelete := make([]string, 0, 10)
 	for key, item := range s.cache.items {
 		if now.After(item.Expires) {
-			delete(s.cache.items, key)
-			deletedCount++
+			keysToDelete = append(keysToDelete, key)
 		}
 	}
+	s.cache.RUnlock()
 
-	if deletedCount > 0 {
-		slog.Debug("Cache GC finished", "removed_count", deletedCount)
+	// delete cache on Lock
+	if len(keysToDelete) > 0 {
+		s.cache.Lock()
+		count := 0
+		for _, key := range keysToDelete {
+			delete(s.cache.items, key)
+			count++
+		}
+		s.cache.Unlock()
+
+		if count > 0 {
+			slog.Debug("Cache GC finished", "removed_count", count)
+		}
 	}
 }
 
