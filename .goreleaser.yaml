@@ -63,4 +63,5 @@ changelog:
       - "^docs:"
       - "^test:"
       - "^fix "
+      - "^Release "
 
