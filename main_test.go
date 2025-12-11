@@ -227,9 +227,16 @@ func TestPrintURLList(t *testing.T) {
 	t.Run("StrictHtmlUrl=false", func(t *testing.T) {
 		cfg.HTML.StrictHtmlUrl = false
 
-		output := captureStdout(t, func() {
+		output, errout := captureOutput(t, func() {
 			_ = printURLList(cfg)
 		})
+
+		// UnExpected errout
+		unexpected := []string{
+			"msg",
+		}
+
+		validateOutput(t, errout, unexpected, true)
 
 		// Expected output (Sorted)
 		expected := []string{
@@ -238,14 +245,14 @@ func TestPrintURLList(t *testing.T) {
 			"http://127.0.0.1:8080/sub/deep",
 		}
 
-		validateOutput(t, output, expected)
+		validateOutput(t, output, expected, false)
 	})
 
 	// Subtest: StrictHtmlUrl = true
 	t.Run("StrictHtmlUrl=true", func(t *testing.T) {
 		cfg.HTML.StrictHtmlUrl = true
 
-		output := captureStdout(t, func() {
+		output, _ := captureOutput(t, func() {
 			_ = printURLList(cfg)
 		})
 
@@ -256,48 +263,71 @@ func TestPrintURLList(t *testing.T) {
 			"http://127.0.0.1:8080/sub/deep.html",
 		}
 
-		validateOutput(t, output, expected)
+		validateOutput(t, output, expected, false)
 	})
 }
 
-// Helper function to capture stdout
-func captureStdout(t *testing.T, f func()) string {
+// Helper function to capture stdout and stderr
+func captureOutput(t *testing.T, f func()) (string, string) {
 	t.Helper()
 
-	// Backup existing Stdout
+	// Backup existing
 	oldStdout := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
+	oldStderr := os.Stderr
+
+	rOut, wOut, _ := os.Pipe()
+	rErr, wErr, _ := os.Pipe()
+
+	os.Stdout = wOut
+	os.Stderr = wErr
 
 	// Execute function
 	f()
 
 	// Restore and read
-	w.Close()
-	os.Stdout = oldStdout
+	wOut.Close()
+	wErr.Close()
 
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, r); err != nil {
+	os.Stdout = oldStdout
+	os.Stderr = oldStderr
+
+	var bufOut, bufErr bytes.Buffer
+	if _, err := io.Copy(&bufOut, rOut); err != nil {
 		t.Fatalf("Failed to capture stdout: %v", err)
 	}
-	return buf.String()
+	if _, err := io.Copy(&bufErr, rErr); err != nil {
+		t.Fatalf("Failed to capture stderr: %v", err)
+	}
+
+	return bufOut.String(), bufErr.String()
 }
 
 // Helper function to validate output content
-func validateOutput(t *testing.T, gotRaw string, expected []string) {
+func validateOutput(t *testing.T, gotRaw string, expected []string, invert bool) {
 	t.Helper()
 
 	// Split by line and trim (remove trailing empty lines)
 	lines := strings.Split(strings.TrimSpace(gotRaw), "\n")
 
-	if len(lines) != len(expected) {
-		t.Errorf("Output line count mismatch: got %d, want %d\nGot:\n%s", len(lines), len(expected), gotRaw)
-		return
-	}
+	if invert {
+		for i, line := range lines {
+			for j, exp := range expected {
+				// t.Errorf("line:%s exp: %s", line, exp)
+				if strings.Contains(line, exp) {
+					t.Errorf("Line %d:%d match:\ngot:  %s", i, j, line)
+				}
+			}
+		}
+	} else {
+		if len(lines) != len(expected) {
+			t.Errorf("Output line count mismatch: got %d, want %d\nGot:\n%s", len(lines), len(expected), gotRaw)
+			return
+		}
 
-	for i, line := range lines {
-		if strings.TrimSpace(line) != expected[i] {
-			t.Errorf("Line %d mismatch:\ngot:  %s\nwant: %s", i, line, expected[i])
+		for i, line := range lines {
+			if strings.TrimSpace(line) != expected[i] {
+				t.Errorf("Line %d mismatch:\ngot:  %s\nwant: %s", i, line, expected[i])
+			}
 		}
 	}
 }

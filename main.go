@@ -34,7 +34,7 @@ import (
 
 var (
 	Version    = "v1.0.1"           // VERSION_STR
-	Revision   = "preview20251211a" // VERSION_STR
+	Revision   = "preview20251211b" // VERSION_STR
 	Maintainer = "kumakaba"
 )
 
@@ -125,7 +125,9 @@ func main() {
 	// Setup Logger(slog)
 	setupLogger(os.Stderr, cfg.General.LogLevel, cfg.General.LogType)
 
-	slog.Info("Setup gomadore", "version", Version, "revision", Revision)
+	if !*listMode {
+		slog.Info("Setup gomadore", "version", Version, "revision", Revision)
+	}
 
 	// Validation
 	validate := validator.New()
