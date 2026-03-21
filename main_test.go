@@ -141,7 +141,7 @@ func TestHandleRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", tt.requestPath, nil)
+			req := httptest.NewRequestWithContext(t.Context(), "GET", tt.requestPath, nil)
 			w := httptest.NewRecorder()
 
 			srv.handleRequest(w, req)
@@ -172,7 +172,7 @@ func TestCacheLogic(t *testing.T) {
 
 	// First Request (Verify Cache Miss)
 	t.Run("First Request (Cache Miss)", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, reqPath, nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, reqPath, nil)
 		w := httptest.NewRecorder()
 		srv.handleRequest(w, req)
 
@@ -183,7 +183,7 @@ func TestCacheLogic(t *testing.T) {
 
 	// Second Request (Verify Cache Hit)
 	t.Run("Second Request (Cache Hit)", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, reqPath, nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, reqPath, nil)
 		w := httptest.NewRecorder()
 		srv.handleRequest(w, req)
 
@@ -194,7 +194,7 @@ func TestCacheLogic(t *testing.T) {
 
 	// Verify Cache Control Header
 	t.Run("Cache Control Header", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, reqPath, nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, reqPath, nil)
 		w := httptest.NewRecorder()
 		srv.handleRequest(w, req)
 
@@ -370,7 +370,7 @@ func TestExternalTemplate(t *testing.T) {
 	srv.tmpl = customTmpl
 
 	// Send request
-	req := httptest.NewRequest("GET", "/index", nil)
+	req := httptest.NewRequestWithContext(t.Context(), "GET", "/index", nil)
 	w := httptest.NewRecorder()
 	srv.handleRequest(w, req)
 
@@ -520,11 +520,11 @@ func TestMaxCacheItems(t *testing.T) {
 	srv.config.Cache.MaxCacheItems = 2
 
 	// Request page1 (Cache: 1/2)
-	req1 := httptest.NewRequest("GET", "/page1", nil)
+	req1 := httptest.NewRequestWithContext(t.Context(), "GET", "/page1", nil)
 	srv.handleRequest(httptest.NewRecorder(), req1)
 
 	// Request page2 (Cache: 2/2 -> Full)
-	req2 := httptest.NewRequest("GET", "/page2", nil)
+	req2 := httptest.NewRequestWithContext(t.Context(), "GET", "/page2", nil)
 	srv.handleRequest(httptest.NewRecorder(), req2)
 
 	srv.cache.RLock()
@@ -534,7 +534,7 @@ func TestMaxCacheItems(t *testing.T) {
 	srv.cache.RUnlock()
 
 	// Request page3 (Cache Overflow -> Should evict one old item)
-	req3 := httptest.NewRequest("GET", "/page3", nil)
+	req3 := httptest.NewRequestWithContext(t.Context(), "GET", "/page3", nil)
 	srv.handleRequest(httptest.NewRecorder(), req3)
 
 	// Verify results
@@ -599,7 +599,7 @@ func TestGcCacheNeverExpires(t *testing.T) {
 
 	// First request: should be MISS and populate cache
 	w1 := httptest.NewRecorder()
-	srv.handleRequest(w1, httptest.NewRequest("GET", reqPath, nil))
+	srv.handleRequest(w1, httptest.NewRequestWithContext(t.Context(), "GET", reqPath, nil))
 	if got := w1.Result().Header.Get("X-Cache"); got != "MISS" {
 		t.Fatalf("precondition: expected first request X-Cache=MISS, got %q", got)
 	}
@@ -617,7 +617,7 @@ func TestGcCacheNeverExpires(t *testing.T) {
 
 	// Second request: Because CacheLimit == 0, handler should treat cached item as valid (HIT)
 	w2 := httptest.NewRecorder()
-	srv.handleRequest(w2, httptest.NewRequest("GET", reqPath, nil))
+	srv.handleRequest(w2, httptest.NewRequestWithContext(t.Context(), "GET", reqPath, nil))
 	if got := w2.Result().Header.Get("X-Cache"); got != "HIT" {
 		t.Fatalf("expected X-Cache=HIT for never-expire mode, got %q", got)
 	}
@@ -633,7 +633,7 @@ func TestGcCacheTTLBoundary(t *testing.T) {
 
 	// First request to populate cache
 	w1 := httptest.NewRecorder()
-	srv.handleRequest(w1, httptest.NewRequest("GET", reqPath, nil))
+	srv.handleRequest(w1, httptest.NewRequestWithContext(t.Context(), "GET", reqPath, nil))
 	if got := w1.Result().Header.Get("X-Cache"); got != "MISS" {
 		t.Fatalf("precondition: expected first request X-Cache=MISS, got %q", got)
 	}
@@ -651,7 +651,7 @@ func TestGcCacheTTLBoundary(t *testing.T) {
 
 	// Immediate request should be HIT
 	w2 := httptest.NewRecorder()
-	srv.handleRequest(w2, httptest.NewRequest("GET", reqPath, nil))
+	srv.handleRequest(w2, httptest.NewRequestWithContext(t.Context(), "GET", reqPath, nil))
 	if got := w2.Result().Header.Get("X-Cache"); got != "HIT" {
 		t.Fatalf("expected immediate request X-Cache=HIT, got %q", got)
 	}
@@ -659,7 +659,7 @@ func TestGcCacheTTLBoundary(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 
 	w3 := httptest.NewRecorder()
-	srv.handleRequest(w3, httptest.NewRequest("GET", reqPath, nil))
+	srv.handleRequest(w3, httptest.NewRequestWithContext(t.Context(), "GET", reqPath, nil))
 	if got := w3.Result().Header.Get("X-Cache"); got != "MISS" {
 		t.Fatalf("expected post-expiry request X-Cache=MISS, got %q", got)
 	}
@@ -686,7 +686,7 @@ func TestGcConcurrentCacheAccess(t *testing.T) {
 			go func(path string) {
 				defer wg.Done()
 				w := httptest.NewRecorder()
-				req := httptest.NewRequest("GET", path, nil)
+				req := httptest.NewRequestWithContext(t.Context(), "GET", path, nil)
 				// Call handler; we assert it doesn't panic. Make sure to close response body.
 				srv.handleRequest(w, req)
 				resp := w.Result()
