@@ -1,12 +1,12 @@
 module github.com/kumakaba/gomadore
 
-go 1.25.5
+go 1.25
 
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-playground/validator/v10 v10.30.1
-	github.com/yuin/goldmark v1.7.16
+	github.com/yuin/goldmark v1.7.17
 )
 
 require (
