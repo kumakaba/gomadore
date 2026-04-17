@@ -33,8 +33,8 @@ import (
 )
 
 var (
-	Version    = "v1.0.4"           // VERSION_STR
-	Revision   = "preview20260417a" // VERSION_STR
+	Version    = "v1.0.4"  // VERSION_STR
+	Revision   = "release" // VERSION_STR
 	Maintainer = "kumakaba"
 )
 
