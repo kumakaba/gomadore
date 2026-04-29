@@ -782,3 +782,66 @@ func TestSetupLogger(t *testing.T) {
 		})
 	}
 }
+
+func TestPrintTemplate(t *testing.T) {
+	tempDir := t.TempDir()
+
+	configPath := filepath.Join(tempDir, "test_config.toml")
+	configContent := `
+[general]
+listen_addr = "127.0.0.1"
+listen_port = 8080
+[html]
+markdown_rootdir = "./md"
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to create test config: %v", err)
+	}
+
+	customTmplPath := filepath.Join(tempDir, "custom.html")
+	customContent := "<html><body>Custom Template</body></html>"
+	if err := os.WriteFile(customTmplPath, []byte(customContent), 0644); err != nil {
+		t.Fatalf("Failed to create custom template: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		tmplPath string
+		want     string
+	}{
+		{
+			name:     "Default Template",
+			tmplPath: "",
+			want:     defaultHtmlTmpl,
+		},
+		{
+			name:     "Custom Template from File",
+			tmplPath: customTmplPath,
+			want:     customContent,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output, _ := captureOutput(t, func() {
+				var currentTmpl string
+				if tt.tmplPath != "" {
+					tmplBytes, err := os.ReadFile(tt.tmplPath)
+					if err != nil {
+						t.Errorf("Failed to read template: %v", err)
+						return
+					}
+					currentTmpl = string(tmplBytes)
+				} else {
+					currentTmpl = defaultHtmlTmpl
+				}
+
+				fmt.Print(currentTmpl)
+			})
+
+			if output != tt.want {
+				t.Errorf("Template output mismatch.\ngot:  %s\nwant: %s", output, tt.want)
+			}
+		})
+	}
+}

@@ -33,8 +33,8 @@ import (
 )
 
 var (
-	Version    = "v1.0.4"  // VERSION_STR
-	Revision   = "release" // VERSION_STR
+	Version    = "v1.1.0"           // VERSION_STR
+	Revision   = "preview20260429a" // VERSION_STR
 	Maintainer = "kumakaba"
 )
 
@@ -107,8 +107,11 @@ func main() {
 	configPath := flag.String("c", "config.toml", "Path to configuration file")
 	tmplPath := flag.String("h", "", "Path to HTML template file (optional)")
 	listMode := flag.Bool("l", false, "List available URLs and exit")
+	printTmplFlag := flag.Bool("pt", false, "print the current HTML template and exit")
 	versionFlag := flag.Bool("v", false, "print the version and exit")
 	flag.Parse()
+
+	isPrintExitMode := *listMode || *printTmplFlag || *versionFlag
 
 	// Return Version and exit
 	if *versionFlag {
@@ -125,7 +128,7 @@ func main() {
 	// Setup Logger(slog)
 	setupLogger(os.Stderr, cfg.General.LogLevel, cfg.General.LogType)
 
-	if !*listMode {
+	if !isPrintExitMode {
 		slog.Info("Setup gomadore", "version", Version, "revision", Revision)
 	}
 
@@ -161,6 +164,37 @@ func main() {
 		cfg.Cache.MaxCacheItems = 1000
 	}
 
+	// Load Template
+	var currentTmpl string
+	if *tmplPath != "" {
+		// Load from file if -h is provided
+		tmplBytes, readErr := os.ReadFile(*tmplPath)
+		if readErr != nil {
+			slog.Error("Failed to read template file", "tmpl_path", *tmplPath, "err", readErr)
+			os.Exit(1)
+		}
+		currentTmpl = string(tmplBytes)
+	} else {
+		// Use default embedded template if not provided
+		currentTmpl = defaultHtmlTmpl
+	}
+
+	// Parse template (and check)
+	var t *template.Template
+	var err error
+
+	t, err = template.New("base").Parse(currentTmpl)
+	if err != nil {
+		slog.Error("Failed to parse template", "err", err)
+		os.Exit(1)
+	}
+
+	// Print HTML Template and Exit
+	if *printTmplFlag {
+		fmt.Print(currentTmpl)
+		os.Exit(0)
+	}
+
 	// Initialize server
 	srv := &Server{
 		config: cfg,
@@ -171,30 +205,8 @@ func main() {
 				parser.WithAutoHeadingID(),
 			),
 		),
+		tmpl: t,
 	}
-
-	// Parse template
-	var t *template.Template
-	var err error
-
-	if *tmplPath != "" {
-		// Load from file if -h is provided
-		tmplBytes, readErr := os.ReadFile(*tmplPath)
-		if readErr != nil {
-			slog.Error("Failed to read template file", "tmpl_path", *tmplPath, "err", readErr)
-			os.Exit(1)
-		}
-		t, err = template.New("base").Parse(string(tmplBytes))
-	} else {
-		// Use default embedded template if not provided
-		t, err = template.New("base").Parse(defaultHtmlTmpl)
-	}
-
-	if err != nil {
-		slog.Error("Failed to parse template", "err", err)
-		os.Exit(1)
-	}
-	srv.tmpl = t
 
 	// Context for managing lifecycle of background goroutines (watcher, cleaner)
 	ctx, cancel := context.WithCancel(context.Background())
