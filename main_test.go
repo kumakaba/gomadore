@@ -845,3 +845,32 @@ markdown_rootdir = "./md"
 		})
 	}
 }
+
+func TestForcedTitle(t *testing.T) {
+	srv, dir := setupTestServer(t)
+	customTmpl, _ := template.New("base").Parse(`
+        <html>
+        <head><title>{{ .Title }}</title></head>
+        <body>{{ .Body }}</body>
+        </html>
+    `)
+	srv.tmpl = customTmpl
+	createFile(t, dir, "title_test.md", "# Original H1\nContent")
+
+	expectedForcedTitle := "My Forced Title"
+	srv.forcedTitle = expectedForcedTitle
+
+	req := httptest.NewRequestWithContext(t.Context(), "GET", "/title_test", nil)
+	w := httptest.NewRecorder()
+	srv.handleRequest(w, req)
+
+	respBody := w.Body.String()
+
+	if strings.Contains(respBody, "<title>Original H1") {
+		t.Errorf("Title should not contain original H1 when forced. Body: %s", respBody)
+	}
+
+	if !strings.Contains(respBody, "<title>"+expectedForcedTitle+"</title>") {
+		t.Errorf("Response should contain forced title %q. Body: %s", expectedForcedTitle, respBody)
+	}
+}

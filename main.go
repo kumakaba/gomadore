@@ -76,10 +76,11 @@ type Cache struct {
 
 // --- Server Struct ---
 type Server struct {
-	config Config
-	cache  *Cache
-	md     goldmark.Markdown
-	tmpl   *template.Template
+	config      Config
+	cache       *Cache
+	md          goldmark.Markdown
+	tmpl        *template.Template
+	forcedTitle string
 }
 
 // Default HTML Template
@@ -106,6 +107,7 @@ const defaultHtmlTmpl = `<!DOCTYPE html>
 func main() {
 	configPath := flag.String("c", "config.toml", "Path to configuration file")
 	tmplPath := flag.String("h", "", "Path to HTML template file (optional)")
+	forcedTitleFlag := flag.String("ft", "", "Force a specific title for all pages (overrides Markdown H1)")
 	listMode := flag.Bool("l", false, "List available URLs and exit")
 	printTmplFlag := flag.Bool("pt", false, "print the current HTML template and exit")
 	versionFlag := flag.Bool("v", false, "print the version and exit")
@@ -205,7 +207,8 @@ func main() {
 				parser.WithAutoHeadingID(),
 			),
 		),
-		tmpl: t,
+		tmpl:        t,
+		forcedTitle: *forcedTitleFlag,
 	}
 
 	// Context for managing lifecycle of background goroutines (watcher, cleaner)
@@ -484,20 +487,26 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 	reader := text.NewReader(mdContent)
 	doc := s.md.Parser().Parse(reader)
 
-	// AST Traversal: Find the first H1
-	var pageTitle string
-	for n := doc.FirstChild(); n != nil; n = n.NextSibling() {
-		// If node is Heading and Level is 1
-		if h, ok := n.(*ast.Heading); ok && h.Level == 1 {
-			pageTitle = string(h.Lines().Value(mdContent))
-			break // Stop after finding the first one
+	// Determine final page title
+	var finalTitle string
+	if s.forcedTitle != "" {
+		// Priority 1: CLI override
+		slog.Debug("Override title by forced options", "strings", s.forcedTitle)
+		finalTitle = s.forcedTitle
+	} else {
+		// Priority 2: Extract H1 from Markdown
+		var pageTitle string
+		for n := doc.FirstChild(); n != nil; n = n.NextSibling() {
+			if h, ok := n.(*ast.Heading); ok && h.Level == 1 {
+				pageTitle = string(h.Lines().Value(mdContent))
+				break
+			}
 		}
-	}
 
-	// Build title string
-	finalTitle := s.config.HTML.SiteTitle
-	if pageTitle != "" {
-		finalTitle = fmt.Sprintf("%s - %s", pageTitle, finalTitle)
+		finalTitle = s.config.HTML.SiteTitle
+		if pageTitle != "" {
+			finalTitle = fmt.Sprintf("%s - %s", pageTitle, finalTitle)
+		}
 	}
 
 	// Render to HTML
