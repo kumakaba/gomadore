@@ -25,7 +25,6 @@ It is designed to serve Markdown files as HTML on-the-fly (Server-Side Rendering
 * **Security:**
     * Built-in directory traversal protection.
     * Canonical redirect enforcement to prevent ACL bypass.
-* **Graceful Shutdown:** Handles system signals (SIGINT, SIGTERM) for safe termination.
 
 ## Prerequisites
 
@@ -119,6 +118,12 @@ Run the server with the default configuration (`config.toml`):
 # List all available URLs (useful for static site generation or debugging)
 ./gomadore -l
 
+# Print the current HTML template
+./gomadore -pt
+
+# Force a specific title for all pages (overrides markdown H1 and config setting)
+./gomadore -ft "Foeced Title String"
+
 # Print version info
 ./gomadore -v
 ```
@@ -159,7 +164,7 @@ if `strict_html_url = true`, urls **must** end with ".html":
 
 If you want to change the HTML structure, create a template file (e.g., `template.html`). The following variables are available:
 
-* `{{ .Title }}`: Page title (from config)
+* `{{ .Title }}`: Page title (extracted from H1 or set by `-ft`)
 * `{{ .Body }}`: Rendered HTML content
 * `{{ .Language }}`: Site language (from config)
 * `{{ .Author }}`: Author name (from config)
@@ -167,6 +172,10 @@ If you want to change the HTML structure, create a template file (e.g., `templat
 * `{{ .ScreenCSS }}`: Screen CSS URL (from config)
 * `{{ .PrintCSS }}`: Print CSS URL (from config)
 * `{{ .Filename }}`: Current filename (useful for body ID)
+* `{{ .DocumentDate }}`: Markdown Document Modified Date string (YYYY-MM-DD)
+* `{{ .DocumentDateTime }}`: Markdown Document Modified Date string (RFC3339)
+* `{{ .GeneratedDate }}`: HTML Generated(Rendered) Date string (YYYY-MM-DD)
+* `{{ .GeneratedDateTime }}`: HTML Generated(Rendered) DateTime string (RFC3339)
 
 ### Default Template
 

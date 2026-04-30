@@ -874,3 +874,66 @@ func TestForcedTitle(t *testing.T) {
 		t.Errorf("Response should contain forced title %q. Body: %s", expectedForcedTitle, respBody)
 	}
 }
+
+func TestTemplateTimeVariables(t *testing.T) {
+	srv, dir := setupTestServer(t)
+
+	// Create a file with a specific timestamp for testing
+	filename := "time_test.md"
+	createFile(t, dir, filename, "# Time Test")
+	filePath := filepath.Join(dir, filename)
+
+	// Set a fixed modification time (e.g., 2026-01-02 15:04:05 JST)
+	testLocation := time.FixedZone("Asia/Tokyo", 9*60*60)
+	testTime := time.Date(2026, 1, 2, 15, 4, 5, 0, testLocation)
+	if err := os.Chtimes(filePath, testTime, testTime); err != nil {
+		t.Fatalf("Failed to set file time: %v", err)
+	}
+
+	// Prepare a template that outputs all time variables
+	// Use markers like [VAR_NAME:VALUE] for easy parsing
+	const timeTmpl = `
+[DD:{{.DocumentDate}}]
+[DDT:{{.DocumentDateTime}}]
+[GD:{{.GeneratedDate}}]
+[GDT:{{.GeneratedDateTime}}]`
+
+	srv.tmpl, _ = template.New("base").Parse(timeTmpl)
+
+	// Request the page
+	req := httptest.NewRequestWithContext(t.Context(), "GET", "/time_test", nil)
+	w := httptest.NewRecorder()
+	srv.handleRequest(w, req)
+
+	respBody := w.Body.String()
+
+	// Verify DocumentDate (YYYY-MM-DD)
+	if !strings.Contains(respBody, "[DD:2026-01-02]") {
+		t.Errorf("DocumentDate mismatch. Got body: %s", respBody)
+	}
+
+	// Verify DocumentDateTime (RFC3339)
+	// Example: 2026-01-02T15:04:05+09:00
+	expectedRFC := testTime.Format(time.RFC3339)
+	if !strings.Contains(respBody, "[DDT:"+expectedRFC+"]") {
+		t.Errorf("DocumentDateTime mismatch.\nwant: %s\ngot: %s", expectedRFC, respBody)
+	}
+
+	// Verify GeneratedDateTime is a valid RFC3339 string (can be parsed by JS/Go)
+	// Extract value using a simple string split
+	parts := strings.Split(respBody, "[GDT:")
+	if len(parts) < 2 {
+		t.Fatal("GeneratedDateTime not found in response")
+	}
+	gdtValue := strings.Split(parts[1], "]")[0]
+
+	if _, err := time.Parse(time.RFC3339, gdtValue); err != nil {
+		t.Errorf("GeneratedDateTime is not a valid RFC3339 string: %s, error: %v", gdtValue, err)
+	}
+
+	// Check if JavaScript could parse it (Optional logic check)
+	// We just ensure it starts with current year (2026 in this context)
+	if !strings.HasPrefix(gdtValue, "2026-") {
+		t.Errorf("GeneratedDateTime seems to have wrong year: %s", gdtValue)
+	}
+}

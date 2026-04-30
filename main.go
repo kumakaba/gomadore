@@ -487,11 +487,31 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 	reader := text.NewReader(mdContent)
 	doc := s.md.Parser().Parse(reader)
 
+	// Get markdown file info for DocumentDate
+	fileInfo, err := os.Stat(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Prepare time strings (RFC3339 is compatible with JS Date constructor)
+	now := time.Now()
+	genDate := now.Format("2006-01-02")
+	genDateTime := now.Format(time.RFC3339)
+
+	docModTime := fileInfo.ModTime()
+	docDate := docModTime.Format("2006-01-02")
+	docDateTime := docModTime.Format(time.RFC3339)
+
 	// Determine final page title
 	var finalTitle string
 	if s.forcedTitle != "" {
 		// Priority 1: CLI override
-		slog.Debug("Override title by forced options", "strings", s.forcedTitle)
+		slog.Debug("Override title by forced option", "string", s.forcedTitle)
 		finalTitle = s.forcedTitle
 	} else {
 		// Priority 2: Extract H1 from Markdown
@@ -519,14 +539,18 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 	// Assemble HTML
 	var finalHTML bytes.Buffer
 	err = s.tmpl.Execute(&finalHTML, map[string]interface{}{
-		"Title":     finalTitle,
-		"Language":  s.config.HTML.SiteLang,
-		"Author":    s.config.HTML.SiteAuthor,
-		"Filename":  filename,
-		"BaseCSS":   s.config.HTML.BaseCSSUrl,
-		"ScreenCSS": s.config.HTML.ScreenCSSUrl,
-		"PrintCSS":  s.config.HTML.PrintCSSUrl,
-		"Body":      template.HTML(buf.String()),
+		"Title":             finalTitle,
+		"Language":          s.config.HTML.SiteLang,
+		"Author":            s.config.HTML.SiteAuthor,
+		"Filename":          filename,
+		"BaseCSS":           s.config.HTML.BaseCSSUrl,
+		"ScreenCSS":         s.config.HTML.ScreenCSSUrl,
+		"PrintCSS":          s.config.HTML.PrintCSSUrl,
+		"Body":              template.HTML(buf.String()),
+		"DocumentDate":      docDate,                    // modified:YYYY-MM-DD
+		"DocumentDateTime":  template.HTML(docDateTime), // modified:RFC3339
+		"GeneratedDate":     genDate,                    // generated:YYYY-MM-DD
+		"GeneratedDateTime": template.HTML(genDateTime), // generated:RFC3339
 	})
 	if err != nil {
 		http.Error(w, "Template execution failed", http.StatusInternalServerError)
