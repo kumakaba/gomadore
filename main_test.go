@@ -937,3 +937,36 @@ func TestTemplateTimeVariables(t *testing.T) {
 		t.Errorf("GeneratedDateTime seems to have wrong year: %s", gdtValue)
 	}
 }
+
+func TestTemplateVersionVariables(t *testing.T) {
+	srv, dir := setupTestServer(t)
+
+	filename := "version_test.md"
+	createFile(t, dir, filename, "# Version Test")
+
+	// Prepare a template that outputs all time variables
+	// Use markers like [VAR_NAME:VALUE] for easy parsing
+	const verTmpl = `
+[Version:{{.GomadoreVersion}}]
+[FullVersion:{{.GomadoreFullVersion}}]`
+
+	srv.tmpl, _ = template.New("base").Parse(verTmpl)
+
+	// Request the page
+	req := httptest.NewRequestWithContext(t.Context(), "GET", "/version_test", nil)
+	w := httptest.NewRecorder()
+	srv.handleRequest(w, req)
+
+	respBody := w.Body.String()
+
+	// Verify Version
+	if !strings.Contains(respBody, "[Version:"+srv.version) {
+		t.Errorf("GomadoreVersion mismatch. Got body: %s", respBody)
+	}
+
+	// Verify FullVersion
+	if !strings.Contains(respBody, "[FullVersion:"+srv.version+"-"+srv.revision) {
+		t.Errorf("GomadoreFullVersion mismatch. Got body: %s", respBody)
+	}
+
+}

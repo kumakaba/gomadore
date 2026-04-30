@@ -113,7 +113,7 @@ Run the server with the default configuration (`config.toml`):
 ./gomadore -c /etc/gomadore/prod.toml
 
 # Specify custom HTML template
-./gomadore -h ./templates/layout.html
+./gomadore -t ./templates/layout.html
 
 # List all available URLs (useful for static site generation or debugging)
 ./gomadore -l
@@ -176,6 +176,8 @@ If you want to change the HTML structure, create a template file (e.g., `templat
 * `{{ .DocumentDateTime }}`: Markdown Document Modified Date string (RFC3339)
 * `{{ .GeneratedDate }}`: HTML Generated(Rendered) Date string (YYYY-MM-DD)
 * `{{ .GeneratedDateTime }}`: HTML Generated(Rendered) DateTime string (RFC3339)
+* `{{ .GomadoreVersion }}`: Gomadore version string
+* `{{ .GomadoreFullVersion }}`: Gomadore version string (with REVISION)
 
 ### Default Template
 

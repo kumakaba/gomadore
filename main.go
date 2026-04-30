@@ -81,6 +81,8 @@ type Server struct {
 	md          goldmark.Markdown
 	tmpl        *template.Template
 	forcedTitle string
+	version     string
+	revision    string
 }
 
 // Default HTML Template
@@ -106,7 +108,7 @@ const defaultHtmlTmpl = `<!DOCTYPE html>
 
 func main() {
 	configPath := flag.String("c", "config.toml", "Path to configuration file")
-	tmplPath := flag.String("h", "", "Path to HTML template file (optional)")
+	tmplPath := flag.String("t", "", "Path to HTML template file (optional)")
 	forcedTitleFlag := flag.String("ft", "", "Force a specific title for all pages (overrides Markdown H1)")
 	listMode := flag.Bool("l", false, "List available URLs and exit")
 	printTmplFlag := flag.Bool("pt", false, "print the current HTML template and exit")
@@ -207,6 +209,8 @@ func main() {
 				parser.WithAutoHeadingID(),
 			),
 		),
+		version:     Version,
+		revision:    Revision,
 		tmpl:        t,
 		forcedTitle: *forcedTitleFlag,
 	}
@@ -539,18 +543,20 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 	// Assemble HTML
 	var finalHTML bytes.Buffer
 	err = s.tmpl.Execute(&finalHTML, map[string]interface{}{
-		"Title":             finalTitle,
-		"Language":          s.config.HTML.SiteLang,
-		"Author":            s.config.HTML.SiteAuthor,
-		"Filename":          filename,
-		"BaseCSS":           s.config.HTML.BaseCSSUrl,
-		"ScreenCSS":         s.config.HTML.ScreenCSSUrl,
-		"PrintCSS":          s.config.HTML.PrintCSSUrl,
-		"Body":              template.HTML(buf.String()),
-		"DocumentDate":      docDate,                    // modified:YYYY-MM-DD
-		"DocumentDateTime":  template.HTML(docDateTime), // modified:RFC3339
-		"GeneratedDate":     genDate,                    // generated:YYYY-MM-DD
-		"GeneratedDateTime": template.HTML(genDateTime), // generated:RFC3339
+		"Title":               finalTitle,
+		"Language":            s.config.HTML.SiteLang,
+		"Author":              s.config.HTML.SiteAuthor,
+		"Filename":            filename,
+		"BaseCSS":             s.config.HTML.BaseCSSUrl,
+		"ScreenCSS":           s.config.HTML.ScreenCSSUrl,
+		"PrintCSS":            s.config.HTML.PrintCSSUrl,
+		"Body":                template.HTML(buf.String()),
+		"DocumentDate":        docDate,                    // modified:YYYY-MM-DD
+		"DocumentDateTime":    template.HTML(docDateTime), // modified:RFC3339
+		"GeneratedDate":       genDate,                    // generated:YYYY-MM-DD
+		"GeneratedDateTime":   template.HTML(genDateTime), // generated:RFC3339
+		"GomadoreVersion":     s.version,
+		"GomadoreFullVersion": fmt.Sprintf("%s-%s", s.version, s.revision),
 	})
 	if err != nil {
 		http.Error(w, "Template execution failed", http.StatusInternalServerError)
