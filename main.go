@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"html/template"
@@ -94,6 +96,7 @@ const defaultHtmlTmpl = `<!DOCTYPE html>
     <title>{{ .Title }}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="generator" content="gomadore {{ .GomadoreFullVersion }}">
+    <meta name="x-document-hash" content="{{ .DocumentHash }}">
     <link rel="stylesheet" href="{{ .BaseCSS }}">
     <link rel="stylesheet" href="{{ .ScreenCSS }}" media="screen">
     <link rel="stylesheet" href="{{ .PrintCSS }}" media="print">
@@ -113,11 +116,12 @@ func main() {
 	tmplPath := flag.String("t", "", "Path to HTML template file (optional)")
 	forcedTitleFlag := flag.String("ft", "", "Force a specific title for all pages (overrides Markdown H1)")
 	listMode := flag.Bool("l", false, "List available URLs and exit")
+	listModeWithHash := flag.Bool("lh", false, "List available URLs with sha256sum and exit (TAB separation)")
 	printTmplFlag := flag.Bool("pt", false, "print the current HTML template and exit")
 	versionFlag := flag.Bool("v", false, "print the version and exit")
 	flag.Parse()
 
-	isPrintExitMode := *listMode || *printTmplFlag || *versionFlag
+	isPrintExitMode := *listMode || *listModeWithHash || *printTmplFlag || *versionFlag
 
 	// Return Version and exit
 	if *versionFlag {
@@ -156,7 +160,16 @@ func main() {
 
 	// URL list mode
 	if *listMode {
-		if err := printURLList(cfg); err != nil {
+		if err := printURLList(cfg, false); err != nil {
+			slog.Error("Failed to list URLs", "err", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
+	// URL list mode with HASH
+	if *listModeWithHash {
+		if err := printURLList(cfg, true); err != nil {
 			slog.Error("Failed to list URLs", "err", err)
 			os.Exit(1)
 		}
@@ -182,7 +195,9 @@ func main() {
 	}
 
 	if currentTmplFilePath != "" {
-		slog.Info("Use the provided HTML template file", "tmpl_path", currentTmplFilePath)
+		if !isPrintExitMode {
+			slog.Info("Use the provided HTML template file", "tmpl_path", currentTmplFilePath)
+		}
 		tmplBytes, readErr := os.ReadFile(currentTmplFilePath)
 		if readErr != nil {
 			slog.Error("Failed to read HTML template file", "tmpl_path", currentTmplFilePath, "err", readErr)
@@ -191,7 +206,9 @@ func main() {
 		currentTmpl = string(tmplBytes)
 	} else {
 		// Use default embedded template if not provided
-		slog.Info("Use default HTML template")
+		if !isPrintExitMode {
+			slog.Info("Use default HTML template")
+		}
 		currentTmpl = defaultHtmlTmpl
 	}
 
@@ -291,7 +308,7 @@ func main() {
 }
 
 // --- Logic to print available URLs ---
-func printURLList(cfg Config) error {
+func printURLList(cfg Config, with_hash bool) error {
 	root := cfg.HTML.MarkdownRootDir
 
 	// Check if root directory exists and is a directory
@@ -328,6 +345,18 @@ func printURLList(cfg Config) error {
 				return nil
 			}
 
+			var docHash string
+			if with_hash {
+				// Check if file exists
+				mdContent, err := os.ReadFile(pathStr)
+				if err != nil {
+					return err
+				}
+				// Calculate SHA256 hash of the markdown content
+				hashBytes := sha256.Sum256(mdContent)
+				docHash = hex.EncodeToString(hashBytes[:])
+			}
+
 			// Convert path separators
 			urlPath := filepath.ToSlash(rel)
 
@@ -357,6 +386,10 @@ func printURLList(cfg Config) error {
 				} else {
 					fullURL = fmt.Sprintf("%s%s%s", baseURL, prefix, urlPath)
 				}
+			}
+
+			if docHash != "" {
+				fullURL = fmt.Sprintf("%s\t%s", fullURL, docHash)
 			}
 
 			// Add to list (do not print yet)
@@ -497,6 +530,10 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Calculate SHA256 hash of the markdown content
+	hashBytes := sha256.Sum256(mdContent)
+	docHash := hex.EncodeToString(hashBytes[:])
+
 	// Markdown Processing: Parse -> Extract H1 -> Render
 
 	// Parse to AST
@@ -563,6 +600,7 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 		"ScreenCSS":           s.config.HTML.ScreenCSSUrl,
 		"PrintCSS":            s.config.HTML.PrintCSSUrl,
 		"Body":                template.HTML(buf.String()),
+		"DocumentHash":        docHash,
 		"DocumentDate":        docDate,                    // modified:YYYY-MM-DD
 		"DocumentDateTime":    template.HTML(docDateTime), // modified:RFC3339
 		"GeneratedDate":       genDate,                    // generated:YYYY-MM-DD

@@ -81,6 +81,10 @@ print_css_url = ""  # Optional custom CSS for print
 # Strict HTML URL: If true, URLs must end with ".html"
 strict_html_url = false
 
+# HTML Template FilePath: If empty, the default template is used.
+# If a template file is specified with the "-t" option, that file will take precedence.
+template_filepath = ""
+
 [cache]
 # Hot Reload: Set true to watch file changes.
 # when the value is false, it will be reloaded based on the cache_limit time.
@@ -117,6 +121,8 @@ Run the server with the default configuration (`config.toml`):
 
 # List all available URLs (useful for static site generation or debugging)
 ./gomadore -l
+# list with HASH (sha256sum)
+./gomadore -lh
 
 # Print the current HTML template
 ./gomadore -pt
@@ -172,6 +178,7 @@ If you want to change the HTML structure, create a template file (e.g., `templat
 * `{{ .ScreenCSS }}`: Screen CSS URL (from config)
 * `{{ .PrintCSS }}`: Print CSS URL (from config)
 * `{{ .Filename }}`: Current filename (useful for body ID)
+* `{{ .DocumentHash }}`: Markdown Document file HASH string (sha256sum)
 * `{{ .DocumentDate }}`: Markdown Document Modified Date string (YYYY-MM-DD)
 * `{{ .DocumentDateTime }}`: Markdown Document Modified Date string (RFC3339)
 * `{{ .GeneratedDate }}`: HTML Generated(Rendered) Date string (YYYY-MM-DD)
@@ -188,6 +195,8 @@ If you want to change the HTML structure, create a template file (e.g., `templat
     <meta charset="UTF-8">
     <title>{{ .Title }}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="generator" content="gomadore {{ .GomadoreFullVersion }}">
+    <meta name="x-document-hash" content="{{ .DocumentHash }}">
     <link rel="stylesheet" href="{{ .BaseCSS }}">
     <link rel="stylesheet" href="{{ .ScreenCSS }}" media="screen">
     <link rel="stylesheet" href="{{ .PrintCSS }}" media="print">
@@ -196,7 +205,7 @@ If you want to change the HTML structure, create a template file (e.g., `templat
     <div class="container markdown-body">
         {{ .Body }}
     </div>
-    <div class="author">{{ .Author }}</div>
+    <div class="author">{{ .DocumentDateTime }} by {{ .Author }}</div>
 </body>
 </html>
 ```

@@ -208,14 +208,14 @@ func TestCacheLogic(t *testing.T) {
 func TestPrintURLList(t *testing.T) {
 	// Create directories and files for testing
 	tempDir := t.TempDir()
-	createFile(t, tempDir, "index.md", "")
-	createFile(t, tempDir, "about.md", "")
+	createFile(t, tempDir, "index.md", "# INDEX")
+	createFile(t, tempDir, "about.md", "# ABOUT")
 
 	subDir := filepath.Join(tempDir, "sub")
 	if err := os.Mkdir(subDir, 0755); err != nil {
 		t.Fatalf("Failed to create dir: %v", err)
 	}
-	createFile(t, tempDir, "sub/deep.md", "")
+	createFile(t, tempDir, "sub/deep.md", "# SUB/DEEP")
 
 	// Basic configuration
 	cfg := Config{}
@@ -228,7 +228,7 @@ func TestPrintURLList(t *testing.T) {
 		cfg.HTML.StrictHtmlUrl = false
 
 		output, errout := captureOutput(t, func() {
-			_ = printURLList(cfg)
+			_ = printURLList(cfg, false)
 		})
 
 		// UnExpected errout
@@ -253,7 +253,7 @@ func TestPrintURLList(t *testing.T) {
 		cfg.HTML.StrictHtmlUrl = true
 
 		output, _ := captureOutput(t, func() {
-			_ = printURLList(cfg)
+			_ = printURLList(cfg, false)
 		})
 
 		// Expected output (Index treated as index.html in Strict mode)
@@ -261,6 +261,23 @@ func TestPrintURLList(t *testing.T) {
 			"http://127.0.0.1:8080/about.html",
 			"http://127.0.0.1:8080/index.html",
 			"http://127.0.0.1:8080/sub/deep.html",
+		}
+
+		validateOutput(t, output, expected, false)
+	})
+
+	// Subtest: with HASH
+	t.Run("with HASH list", func(t *testing.T) {
+		output, _ := captureOutput(t, func() {
+			_ = printURLList(cfg, true)
+		})
+
+		// Expected output
+		// echo -n "# INDEX" | sha256sum
+		expected := []string{
+			"http://127.0.0.1:8080/about.html\t63a17abe76f88230a959ef74f070cc17b7bca0b3860f401ec8def790b516a125",
+			"http://127.0.0.1:8080/index.html\ted18cd6a16f2d3e14985c335ddea5a26ed6ef87698743f98c3699df2cad5d028",
+			"http://127.0.0.1:8080/sub/deep.html\t55b194515b083656865ba20f9f7ca358cf93aa0104d8a143c1ab6c5326d28190",
 		}
 
 		validateOutput(t, output, expected, false)
@@ -561,7 +578,7 @@ func TestPrintURLList_Error(t *testing.T) {
 		cfg := Config{}
 		cfg.HTML.MarkdownRootDir = filepath.Join(tempDir, "non_existent")
 
-		err := printURLList(cfg)
+		err := printURLList(cfg, false)
 		if err == nil {
 			t.Error("Expected error for non-existent root, got nil")
 		}
@@ -578,7 +595,7 @@ func TestPrintURLList_Error(t *testing.T) {
 		cfg := Config{}
 		cfg.HTML.MarkdownRootDir = filePath
 
-		err := printURLList(cfg)
+		err := printURLList(cfg, false)
 		if err == nil {
 			t.Error("Expected error for file root, got nil")
 		}
