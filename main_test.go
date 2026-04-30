@@ -931,7 +931,7 @@ func TestTemplateTimeVariables(t *testing.T) {
 
 	// Verify DocumentDateTime (RFC3339)
 	// Example: 2026-01-02T15:04:05+09:00
-	expectedRFC := testTime.Format(time.RFC3339)
+	expectedRFC := testTime.Local().Format(time.RFC3339)
 	if !strings.Contains(respBody, "[DDT:"+expectedRFC+"]") {
 		t.Errorf("DocumentDateTime mismatch.\nwant: %s\ngot: %s", expectedRFC, respBody)
 	}
