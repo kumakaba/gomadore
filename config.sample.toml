@@ -26,8 +26,12 @@ print_css_url = ""  # Optional custom CSS for print
 # Strict HTML URL: If true, URLs must end with ".html"
 strict_html_url = false
 
+# HTML Template FilePath: If empty, the default template is used.
+# If a template file is specified with the "-t" option, that file will take precedence.
+template_filepath = ""
+
 [cache]
-# Hot Reload: Set true to watch file changes.
+# Hot Reload: Set true to watch file changes. (without template)
 # when the value is false, it will be reloaded based on the cache_limit time.
 hot_reload = true
 

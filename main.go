@@ -47,14 +47,15 @@ type Config struct {
 		LogType    string `toml:"log_type" validate:"omitempty,oneof=text json"`
 	} `toml:"general"`
 	HTML struct {
-		MarkdownRootDir string `toml:"markdown_rootdir" validate:"required"`
-		SiteTitle       string `toml:"site_title"`
-		SiteLang        string `toml:"site_lang"`
-		SiteAuthor      string `toml:"site_author"`
-		BaseCSSUrl      string `toml:"base_css_url"`
-		ScreenCSSUrl    string `toml:"screen_css_url"`
-		PrintCSSUrl     string `toml:"print_css_url"`
-		StrictHtmlUrl   bool   `toml:"strict_html_url"`
+		MarkdownRootDir  string `toml:"markdown_rootdir" validate:"required"`
+		SiteTitle        string `toml:"site_title"`
+		SiteLang         string `toml:"site_lang"`
+		SiteAuthor       string `toml:"site_author"`
+		BaseCSSUrl       string `toml:"base_css_url"`
+		ScreenCSSUrl     string `toml:"screen_css_url"`
+		PrintCSSUrl      string `toml:"print_css_url"`
+		StrictHtmlUrl    bool   `toml:"strict_html_url"`
+		TemplateFilePath string `toml:"template_filepath"`
 	} `toml:"html"`
 	Cache struct {
 		HotReload     bool `toml:"hot_reload"`
@@ -92,6 +93,7 @@ const defaultHtmlTmpl = `<!DOCTYPE html>
     <meta charset="UTF-8">
     <title>{{ .Title }}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="generator" content="gomadore {{ .GomadoreFullVersion }}">
     <link rel="stylesheet" href="{{ .BaseCSS }}">
     <link rel="stylesheet" href="{{ .ScreenCSS }}" media="screen">
     <link rel="stylesheet" href="{{ .PrintCSS }}" media="print">
@@ -100,7 +102,7 @@ const defaultHtmlTmpl = `<!DOCTYPE html>
     <div class="container markdown-body">
         {{ .Body }}
     </div>
-    <div class="author">{{ .Author }}</div>
+    <div class="author">{{ .DocumentDateTime }} by {{ .Author }}</div>
 </body>
 </html>`
 
@@ -169,17 +171,27 @@ func main() {
 	}
 
 	// Load Template
+	var currentTmplFilePath string
 	var currentTmpl string
 	if *tmplPath != "" {
-		// Load from file if -h is provided
-		tmplBytes, readErr := os.ReadFile(*tmplPath)
+		// Load from file if -t is provided
+		currentTmplFilePath = *tmplPath
+	} else if cfg.HTML.TemplateFilePath != "" {
+		// from config
+		currentTmplFilePath = cfg.HTML.TemplateFilePath
+	}
+
+	if currentTmplFilePath != "" {
+		slog.Info("Use the provided HTML template file", "tmpl_path", currentTmplFilePath)
+		tmplBytes, readErr := os.ReadFile(currentTmplFilePath)
 		if readErr != nil {
-			slog.Error("Failed to read template file", "tmpl_path", *tmplPath, "err", readErr)
+			slog.Error("Failed to read HTML template file", "tmpl_path", currentTmplFilePath, "err", readErr)
 			os.Exit(1)
 		}
 		currentTmpl = string(tmplBytes)
 	} else {
 		// Use default embedded template if not provided
+		slog.Info("Use default HTML template")
 		currentTmpl = defaultHtmlTmpl
 	}
 
