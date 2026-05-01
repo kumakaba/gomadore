@@ -30,6 +30,20 @@ strict_html_url = false
 # If a template file is specified with the "-t" option, that file will take precedence.
 template_filepath = ""
 
+# Goldmark Perser option: Enables auto heading IDs.
+# Non-alphanumeric characters are ignored. 
+# If the string becomes empty as a result of ignoring non-alphanumeric characters,
+# a sequential ID such as "heading","heading-1","heading-2",,, is added.
+# ex) "# Foofoo hogeHoge!!" -> <h1 id="foofoo-hogehoge">Foofoo hogeHoge!!</h1>
+# ex) "# !!!!" -> <h1 id="heading">!!!!</h1>
+auto_heading_id = true
+
+# Goldmark Perser option: Enables custom attributes.
+# Currently only headings supports attributes.
+# ex) "# Foofoo hogeHoge!! {#fooHoge .c1 .c2}" -> <h1 id="fooHoge" class="c1 c2">Foofoo hogeHoge!!</h1>
+use_attributes = true
+
+
 [cache]
 # Hot Reload: Set true to watch file changes. (without template)
 # when the value is false, it will be reloaded based on the cache_limit time.

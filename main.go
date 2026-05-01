@@ -35,8 +35,8 @@ import (
 )
 
 var (
-	Version    = "v1.1.0"  // VERSION_STR
-	Revision   = "release" // VERSION_STR
+	Version    = "v1.2.0"           // VERSION_STR
+	Revision   = "preview20260501a" // VERSION_STR
 	Maintainer = "kumakaba"
 )
 
@@ -49,15 +49,17 @@ type Config struct {
 		LogType    string `toml:"log_type" validate:"omitempty,oneof=text json"`
 	} `toml:"general"`
 	HTML struct {
-		MarkdownRootDir  string `toml:"markdown_rootdir" validate:"required"`
-		SiteTitle        string `toml:"site_title"`
-		SiteLang         string `toml:"site_lang"`
-		SiteAuthor       string `toml:"site_author"`
-		BaseCSSUrl       string `toml:"base_css_url"`
-		ScreenCSSUrl     string `toml:"screen_css_url"`
-		PrintCSSUrl      string `toml:"print_css_url"`
-		StrictHtmlUrl    bool   `toml:"strict_html_url"`
-		TemplateFilePath string `toml:"template_filepath"`
+		MarkdownRootDir     string `toml:"markdown_rootdir" validate:"required"`
+		SiteTitle           string `toml:"site_title"`
+		SiteLang            string `toml:"site_lang"`
+		SiteAuthor          string `toml:"site_author"`
+		BaseCSSUrl          string `toml:"base_css_url"`
+		ScreenCSSUrl        string `toml:"screen_css_url"`
+		PrintCSSUrl         string `toml:"print_css_url"`
+		StrictHtmlUrl       bool   `toml:"strict_html_url"`
+		TemplateFilePath    string `toml:"template_filepath"`
+		EnableAutoHeadingID bool   `toml:"auto_heading_id"`
+		EnableUseAttributes bool   `toml:"use_attributes"`
 	} `toml:"html"`
 	Cache struct {
 		HotReload     bool `toml:"hot_reload"`
@@ -229,14 +231,23 @@ func main() {
 	}
 
 	// Initialize server
+	var goldmarkParserOpts []parser.Option
+
+	if cfg.HTML.EnableAutoHeadingID {
+		slog.Info("Enabled AutoHeadingID for HTML parser option")
+		goldmarkParserOpts = append(goldmarkParserOpts, parser.WithAutoHeadingID())
+	}
+	if cfg.HTML.EnableUseAttributes {
+		slog.Info("Enabled UseAttributes for HTML parser option")
+		goldmarkParserOpts = append(goldmarkParserOpts, parser.WithAttribute())
+	}
+
 	srv := &Server{
 		config: cfg,
 		cache:  &Cache{items: make(map[string]CacheItem)},
 		md: goldmark.New(
 			goldmark.WithExtensions(extension.GFM), // Enable GitHub Flavored Markdown
-			goldmark.WithParserOptions(
-				parser.WithAutoHeadingID(),
-			),
+			goldmark.WithParserOptions(goldmarkParserOpts...),
 		),
 		version:     Version,
 		revision:    Revision,

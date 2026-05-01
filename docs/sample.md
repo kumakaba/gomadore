@@ -29,12 +29,12 @@ Images hosted on external servers (like CDNs or GitHub user content) can be disp
     * Directory traversal protection
     * Strict mode
 
-### Ordered List
+### Ordered List {#orderlist .list .order}
 1.  Install Go
 2.  Clone the repository
 3.  Build the binary
 
-### Task List (GFM)
+### Task List (GFM) {#tasklist .list .task}
 - [x] Implement Basic Server
 - [x] Add Caching mechanism
 - [ ] Add Search functionality (Future)

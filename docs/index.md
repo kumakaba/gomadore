@@ -11,3 +11,4 @@ Gomadore is running successfully! 🎉
 1. Edit `config.toml` to customize your server.
 2. Put your markdown files in this directory (`./docs`).
 
+
