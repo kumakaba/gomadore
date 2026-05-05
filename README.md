@@ -30,7 +30,12 @@ It is designed to serve Markdown files as HTML on-the-fly (Server-Side Rendering
 
 * **Go 1.25** or higher
 
-## Installation
+## Installation (easy)
+
+Download the latest version and the package that suits your environment from the [Releases](https://github.com/kumakaba/gomadore/releases), extract it, and run the binary.
+
+
+## Installation (build)
 
 1.  **Clone the repository:**
     ```bash
@@ -190,7 +195,7 @@ If you want to change the HTML structure, create a template file (e.g., `templat
 * `{{ .BaseCSS }}`: Base CSS URL (from config)
 * `{{ .ScreenCSS }}`: Screen CSS URL (from config)
 * `{{ .PrintCSS }}`: Print CSS URL (from config)
-* `{{ .Filename }}`: Current filename (useful for body ID)
+* `{{ .Filename }}`: Markdown Document filename (useful for body ID)
 * `{{ .DocumentHash }}`: Markdown Document file HASH string (sha256sum)
 * `{{ .DocumentHashShort }}`: First 8 characters of the `DocumentHash`
 * `{{ .DocumentDate }}`: Markdown Document Modified Date string (YYYY-MM-DD)
