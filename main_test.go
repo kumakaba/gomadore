@@ -64,7 +64,9 @@ func setupTestServer(t *testing.T) (*Server, string) {
 			goldmark.WithExtensions(extension.GFM),
 			goldmark.WithParserOptions(parser.WithAutoHeadingID()),
 		),
-		tmpl: tmpl,
+		version:  Version,
+		revision: Revision,
+		tmpl:     tmpl,
 	}
 
 	return srv, tempDir
@@ -984,6 +986,57 @@ func TestTemplateVersionVariables(t *testing.T) {
 	// Verify FullVersion
 	if !strings.Contains(respBody, "[FullVersion:"+srv.version+"-"+srv.revision) {
 		t.Errorf("GomadoreFullVersion mismatch. Got body: %s", respBody)
+	}
+
+}
+
+func TestTemplateHashStrings(t *testing.T) {
+	srv, dir := setupTestServer(t)
+
+	filename := "shortsig_test.md"
+	createFile(t, dir, filename, "# ShortSig Test")
+
+	const verTmpl = `
+##[HASH:{{.DocumentHash}}]
+##[HASH_SHORT:{{.DocumentHashShort}}]
+##[SHORT_SIG:{{.ShortSig}}]
+`
+	srv.tmpl, _ = template.New("base").Parse(verTmpl)
+
+	// Request the page
+	req := httptest.NewRequestWithContext(t.Context(), "GET", "/shortsig_test", nil)
+	w := httptest.NewRecorder()
+	srv.handleRequest(w, req)
+
+	respBody := w.Body.String()
+
+	// Verify
+
+	parts := strings.Split(respBody, "##")
+	resHash := parts[1]
+	resHashShort := parts[2]
+	resShortSig := parts[3]
+
+	hashParts := strings.Split(resHash, ":")
+	hashValue := strings.Split(hashParts[1], "]")[0]
+	if len(hashValue) != 64 {
+		t.Errorf("DocumentHash Length invalid. Got : %s", hashValue)
+	}
+
+	hashShortParts := strings.Split(resHashShort, ":")
+	hashShortValue := strings.Split(hashShortParts[1], "]")[0]
+	if len(hashShortValue) != 8 {
+		t.Errorf("DocumentHashShort Length invalid. Got : %s", hashShortValue)
+	}
+	expectedHashShort := hashShortValue[:8]
+	if hashShortValue != expectedHashShort {
+		t.Errorf("DocumentHashShort mismatch. Got : %s", hashShortValue)
+	}
+
+	shortSigParts := strings.Split(resShortSig, ":")
+	shortSigValue := strings.Split(shortSigParts[1], "]")[0]
+	if len(shortSigValue) < 6 {
+		t.Errorf("ShortSig Length invalid. Got : %s (%d)", shortSigValue, len(shortSigValue))
 	}
 
 }

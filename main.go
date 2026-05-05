@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -36,7 +37,7 @@ import (
 
 var (
 	Version    = "v1.2.0"           // VERSION_STR
-	Revision   = "preview20260505a" // VERSION_STR
+	Revision   = "preview20260505b" // VERSION_STR
 	Maintainer = "kumakaba"
 )
 
@@ -544,6 +545,7 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 	// Calculate SHA256 hash of the markdown content
 	hashBytes := sha256.Sum256(mdContent)
 	docHash := hex.EncodeToString(hashBytes[:])
+	docHashShort := docHash[:8]
 
 	// Markdown Processing: Parse -> Extract H1 -> Render
 
@@ -570,6 +572,12 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 	docModTime := fileInfo.ModTime()
 	docDate := docModTime.Format("2006-01-02")
 	docDateTime := docModTime.Format(time.RFC3339)
+
+	// Calculate ASCII short string
+	const minimumOffset = 60466176 // 36^5 = 60,466,176 (offset for min 6char)
+	int_hashshort, _ := strconv.ParseUint(docHashShort, 16, 64)
+	obfuscated := (uint64(now.UnixMilli()) ^ int_hashshort) + minimumOffset
+	sigString := strconv.FormatUint(obfuscated, 36)
 
 	// Determine final page title
 	var finalTitle string
@@ -612,12 +620,14 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 		"PrintCSS":            s.config.HTML.PrintCSSUrl,
 		"Body":                template.HTML(buf.String()),
 		"DocumentHash":        docHash,
+		"DocumentHashShort":   docHashShort,
 		"DocumentDate":        docDate,                    // modified:YYYY-MM-DD
 		"DocumentDateTime":    template.HTML(docDateTime), // modified:RFC3339
 		"GeneratedDate":       genDate,                    // generated:YYYY-MM-DD
 		"GeneratedDateTime":   template.HTML(genDateTime), // generated:RFC3339
 		"GomadoreVersion":     s.version,
 		"GomadoreFullVersion": fmt.Sprintf("%s-%s", s.version, s.revision),
+		"ShortSig":            sigString,
 	})
 	if err != nil {
 		http.Error(w, "Template execution failed", http.StatusInternalServerError)
