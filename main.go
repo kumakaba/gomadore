@@ -687,9 +687,13 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	expiresTime := time.Time{}
+	if s.config.Cache.CacheLimit > 0 {
+		expiresTime = time.Now().Add(time.Duration(s.config.Cache.CacheLimit) * time.Second)
+	}
 	s.cache.items[reqPath] = CacheItem{
 		Content: respBody,
-		Expires: time.Now().Add(time.Duration(s.config.Cache.CacheLimit) * time.Second),
+		Expires: expiresTime,
 	}
 	s.cache.Unlock()
 
