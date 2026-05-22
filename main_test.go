@@ -36,6 +36,8 @@ func setupTestServer(t *testing.T) (*Server, string) {
 	createFile(t, tempDir, "about.md", "# About\nThis is about page")
 	// file: /.hide.md
 	createFile(t, tempDir, ".hide.md", "# Hide Page\nThis is hide page")
+	// file: /not.hide.md
+	createFile(t, tempDir, "not.hide.md", "# Not Hide Page\nThis is not hide page")
 
 	// file: /sub/deep.md
 	subDir := filepath.Join(tempDir, "sub")
@@ -43,6 +45,13 @@ func setupTestServer(t *testing.T) (*Server, string) {
 		t.Fatalf("Failed to create directory %s: %v", subDir, err)
 	}
 	createFile(t, tempDir, "sub/deep.md", "# Deep Page\nDeep content")
+
+	// file: /.hid/draft.md
+	hidDir := filepath.Join(tempDir, ".hid")
+	if err := os.Mkdir(hidDir, 0755); err != nil {
+		t.Fatalf("Failed to create directory %s: %v", hidDir, err)
+	}
+	createFile(t, tempDir, ".hid/draft.md", "# Deep Page\nHidden content")
 
 	// file: /t1/cococo.md (for attack scenario)
 	t1Dir := filepath.Join(tempDir, "t1")
@@ -104,6 +113,11 @@ func TestHandleRequest(t *testing.T) {
 			wantStatusCode: http.StatusOK,
 		},
 		{
+			name:           "Normal: Not Hide page",
+			requestPath:    "/not.hide",
+			wantStatusCode: http.StatusOK,
+		},
+		{
 			name:           "Normal: Sub directory file",
 			requestPath:    "/sub/deep",
 			wantStatusCode: http.StatusOK,
@@ -137,8 +151,13 @@ func TestHandleRequest(t *testing.T) {
 
 		// --- Error Cases ---
 		{
-			name:           "Error: Not Found (hide)",
+			name:           "Error: Not Found (hidden file)",
 			requestPath:    "/.hide",
+			wantStatusCode: http.StatusNotFound,
+		},
+		{
+			name:           "Error: Not Found (hidden directory)",
+			requestPath:    "/.hid/draft",
 			wantStatusCode: http.StatusNotFound,
 		},
 		{
