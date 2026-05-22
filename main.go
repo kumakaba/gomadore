@@ -36,8 +36,8 @@ import (
 )
 
 var (
-	Version    = "v1.2.0"  // VERSION_STR
-	Revision   = "release" // VERSION_STR
+	Version    = "v1.3.0"           // VERSION_STR
+	Revision   = "preview20260522a" // VERSION_STR
 	Maintainer = "kumakaba"
 )
 
@@ -51,6 +51,7 @@ type Config struct {
 	} `toml:"general"`
 	HTML struct {
 		MarkdownRootDir     string `toml:"markdown_rootdir" validate:"required"`
+		IgnorePrefix        string `toml:"ignore_prefix"`
 		SiteTitle           string `toml:"site_title"`
 		SiteLang            string `toml:"site_lang"`
 		SiteAuthor          string `toml:"site_author"`
@@ -322,6 +323,7 @@ func main() {
 // --- Logic to print available URLs ---
 func printURLList(cfg Config, with_hash bool) error {
 	root := cfg.HTML.MarkdownRootDir
+	ignore_prefix := cfg.HTML.IgnorePrefix
 
 	// Check if root directory exists and is a directory
 	info, err := os.Stat(root)
@@ -349,8 +351,23 @@ func printURLList(cfg Config, with_hash bool) error {
 		if err != nil {
 			return err
 		}
+
+		// --- Default Rule: Skip hidden files and directories (starting with ".") ---
+		if strings.HasPrefix(d.Name(), ".") {
+			if d.IsDir() {
+				return filepath.SkipDir // Skip the entire directory tree
+			}
+			return nil // Skip this specific hidden file
+		}
+
 		// Process only files with .md extension
 		if !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".md") {
+
+			// Skip files that match the ignore_prefix
+			if ignore_prefix != "" && strings.HasPrefix(d.Name(), ignore_prefix) {
+				return nil
+			}
+
 			// Get relative path
 			rel, err := filepath.Rel(root, pathStr)
 			if err != nil {
@@ -469,6 +486,25 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 	filename := path.Base(reqPath)
 	if filename == "" || filename == "." {
 		filename = "default"
+	}
+
+	// Block hidden paths or ignore_prefix elements.
+	// Split the request path into components and check each part.
+	// This blocks requests like /_drafts/page or /.git/config
+	segments := strings.Split(reqPath, "/")
+	ignore_prefix := s.config.HTML.IgnorePrefix
+	for _, seg := range segments {
+		if seg == "" {
+			continue
+		}
+		if strings.HasPrefix(seg, ".") {
+			http.NotFound(w, r)
+			return
+		}
+		if ignore_prefix != "" && strings.HasPrefix(seg, ignore_prefix) {
+			http.NotFound(w, r)
+			return
+		}
 	}
 
 	// Check cache
@@ -680,12 +716,30 @@ func (s *Server) watchFiles(ctx context.Context) {
 		}
 	}()
 
+	ignore_prefix := s.config.HTML.IgnorePrefix
+
 	// Function to add subdirectories recursively
 	addWatchRecursive := func(root string) {
 		err := filepath.WalkDir(root, func(pathStr string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
+			// Skip hidden files and directories (e.g., .git)
+			if strings.HasPrefix(d.Name(), ".") {
+				if d.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+
+			// Skip user-defined ignore prefixes
+			if ignore_prefix != "" && strings.HasPrefix(d.Name(), ignore_prefix) {
+				if d.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+
 			pathStr = filepath.ToSlash(filepath.Clean(pathStr))
 			if d.IsDir() {
 				if err := watcher.Add(pathStr); err != nil {
@@ -719,7 +773,13 @@ func (s *Server) watchFiles(ctx context.Context) {
 			}
 
 			filename := filepath.Base(event.Name)
+
+			// Check hidden prefix
 			if strings.HasPrefix(filename, ".") || strings.HasSuffix(filename, "~") {
+				continue
+			}
+			// Check user-defined ignore prefix
+			if ignore_prefix != "" && strings.HasPrefix(filename, ignore_prefix) {
 				continue
 			}
 

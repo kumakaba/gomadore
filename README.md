@@ -72,6 +72,11 @@ log_type = "text"
 # Directory containing your Markdown files and assets
 markdown_rootdir = "./docs"
 
+# Prefix to exclude Markdown files
+# Hidden files and directories (those starting with a dot `.`) are implicitly ignored by default.
+# There is no need to configure them manually.
+ignore_prefix = "_"
+
 # Site Metadata
 site_title = "Gomadore Documentation"
 site_lang = "en"

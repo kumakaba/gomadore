@@ -34,6 +34,8 @@ func setupTestServer(t *testing.T) (*Server, string) {
 	createFile(t, tempDir, "index.md", "# Top Page\nHello World")
 	// file: /about.md
 	createFile(t, tempDir, "about.md", "# About\nThis is about page")
+	// file: /.hide.md
+	createFile(t, tempDir, ".hide.md", "# Hide Page\nThis is hide page")
 
 	// file: /sub/deep.md
 	subDir := filepath.Join(tempDir, "sub")
@@ -135,6 +137,11 @@ func TestHandleRequest(t *testing.T) {
 
 		// --- Error Cases ---
 		{
+			name:           "Error: Not Found (hide)",
+			requestPath:    "/.hide",
+			wantStatusCode: http.StatusNotFound,
+		},
+		{
 			name:           "Error: Not Found",
 			requestPath:    "/notfound",
 			wantStatusCode: http.StatusNotFound,
@@ -212,12 +219,19 @@ func TestPrintURLList(t *testing.T) {
 	tempDir := t.TempDir()
 	createFile(t, tempDir, "index.md", "# INDEX")
 	createFile(t, tempDir, "about.md", "# ABOUT")
+	createFile(t, tempDir, ".hide.md", "# HIDE")
 
 	subDir := filepath.Join(tempDir, "sub")
 	if err := os.Mkdir(subDir, 0755); err != nil {
 		t.Fatalf("Failed to create dir: %v", err)
 	}
 	createFile(t, tempDir, "sub/deep.md", "# SUB/DEEP")
+
+	hidDir := filepath.Join(tempDir, ".hid")
+	if err := os.Mkdir(hidDir, 0755); err != nil {
+		t.Fatalf("Failed to create dir: %v", err)
+	}
+	createFile(t, tempDir, ".hid/hide.md", "# HID/HIDE")
 
 	// Basic configuration
 	cfg := Config{}
@@ -234,11 +248,19 @@ func TestPrintURLList(t *testing.T) {
 		})
 
 		// UnExpected errout
-		unexpected := []string{
+		unexpected1 := []string{
 			"msg",
 		}
 
-		validateOutput(t, errout, unexpected, true)
+		validateOutput(t, errout, unexpected1, true)
+
+		// UnExpected stdout (Not Stored)
+		unexpected2 := []string{
+			"http://127.0.0.1:8080/.hide",
+			"http://127.0.0.1:8080/.hid/hide",
+		}
+
+		validateOutput(t, output, unexpected2, true)
 
 		// Expected output (Sorted)
 		expected := []string{
@@ -248,6 +270,7 @@ func TestPrintURLList(t *testing.T) {
 		}
 
 		validateOutput(t, output, expected, false)
+
 	})
 
 	// Subtest: StrictHtmlUrl = true
@@ -280,6 +303,99 @@ func TestPrintURLList(t *testing.T) {
 			"http://127.0.0.1:8080/about.html\t63a17abe76f88230a959ef74f070cc17b7bca0b3860f401ec8def790b516a125",
 			"http://127.0.0.1:8080/index.html\ted18cd6a16f2d3e14985c335ddea5a26ed6ef87698743f98c3699df2cad5d028",
 			"http://127.0.0.1:8080/sub/deep.html\t55b194515b083656865ba20f9f7ca358cf93aa0104d8a143c1ab6c5326d28190",
+		}
+
+		validateOutput(t, output, expected, false)
+	})
+}
+
+func TestPrintURLListWithIgnorePrefix(t *testing.T) {
+	// Create directories and files for testing
+	tempDir := t.TempDir()
+	createFile(t, tempDir, "index.md", "# INDEX")
+	createFile(t, tempDir, "about.md", "# ABOUT")
+	createFile(t, tempDir, "_under.md", "# UNDER")
+	createFile(t, tempDir, "__dunder.md", "# DOUBLE")
+
+	subDir := filepath.Join(tempDir, "sub")
+	if err := os.Mkdir(subDir, 0755); err != nil {
+		t.Fatalf("Failed to create dir: %v", err)
+	}
+	createFile(t, tempDir, "sub/_under.md", "# SUB/UNDER")
+	createFile(t, tempDir, "sub/__dunder.md", "# SUB/DOUBLE")
+
+	// Basic configuration
+	cfg := Config{}
+	cfg.General.ListenAddr = "127.0.0.1"
+	cfg.General.ListenPort = 8080
+	cfg.HTML.MarkdownRootDir = tempDir
+	cfg.HTML.IgnorePrefix = "__"
+
+	t.Run("Prefix=doubleUnder", func(t *testing.T) {
+		cfg.HTML.StrictHtmlUrl = false
+
+		output, errout := captureOutput(t, func() {
+			_ = printURLList(cfg, false)
+		})
+
+		// UnExpected errout
+		unexpected1 := []string{
+			"msg",
+		}
+
+		validateOutput(t, errout, unexpected1, true)
+
+		// UnExpected stdout (Not Stored)
+		unexpected2 := []string{
+			"http://127.0.0.1:8080/__dunder",
+			"http://127.0.0.1:8080/sub/__dunder",
+		}
+
+		validateOutput(t, output, unexpected2, true)
+
+		// Expected output (Sorted)
+		expected := []string{
+			"http://127.0.0.1:8080/",
+			"http://127.0.0.1:8080/_under",
+			"http://127.0.0.1:8080/about",
+			"http://127.0.0.1:8080/sub/_under",
+		}
+
+		validateOutput(t, output, expected, false)
+
+	})
+
+	// Change Prefix
+	cfg.HTML.IgnorePrefix = "_"
+
+	t.Run("Prefix=singleUnder", func(t *testing.T) {
+		cfg.HTML.StrictHtmlUrl = false
+
+		output, errout := captureOutput(t, func() {
+			_ = printURLList(cfg, false)
+		})
+
+		// UnExpected errout
+		unexpected1 := []string{
+			"msg",
+		}
+
+		validateOutput(t, errout, unexpected1, true)
+
+		// UnExpected stdout (Not Stored)
+		unexpected2 := []string{
+			"http://127.0.0.1:8080/__dunder",
+			"http://127.0.0.1:8080/_under",
+			"http://127.0.0.1:8080/sub/__dunder",
+			"http://127.0.0.1:8080/sub/_under",
+		}
+
+		validateOutput(t, output, unexpected2, true)
+
+		// Expected output (Sorted)
+		expected := []string{
+			"http://127.0.0.1:8080/",
+			"http://127.0.0.1:8080/about",
 		}
 
 		validateOutput(t, output, expected, false)
