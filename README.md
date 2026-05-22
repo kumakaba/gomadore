@@ -22,9 +22,9 @@ It is designed to serve Markdown files as HTML on-the-fly (Server-Side Rendering
     * Configurable via TOML.
     * Supports custom HTML templates.
     * Easy integration with Class-less CSS frameworks (e.g., Water.css, MVP.css).
-* **Security:**
-    * Built-in directory traversal protection.
-    * Canonical redirect enforcement to prevent ACL bypass.
+* **Simple:**
+    * Both the binary and the source file are a single file.
+    * If you're looking for a Static Site Generator (SSG), you should use [HUGO](https://github.com/gohugoio/hugo).
 
 ## Prerequisites
 
