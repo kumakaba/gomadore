@@ -37,7 +37,7 @@ import (
 
 var (
 	Version    = "v1.3.1"            // VERSION_STR
-	Revision   = "preview-20260930a" // VERSION_STR
+	Revision   = "preview-20260930b" // VERSION_STR
 	Maintainer = "kumakaba"
 )
 
@@ -559,8 +559,8 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 	absPath = filepath.Clean(absPath)
 
 	// Ensure candidate path stays within markdown root
-	rootWithSep := absRoot + string(os.PathSeparator)
-	if absPath != absRoot && !strings.HasPrefix(absPath, rootWithSep) {
+	relToRoot, err := filepath.Rel(absRoot, absPath)
+	if err != nil || relToRoot == ".." || strings.HasPrefix(relToRoot, ".."+string(os.PathSeparator)) || filepath.IsAbs(relToRoot) {
 		slog.Info("Attack attempt detected", "path", r.URL.Path, "remote_addr", r.RemoteAddr)
 		http.NotFound(w, r)
 		return
