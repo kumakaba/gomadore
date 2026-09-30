@@ -2,7 +2,7 @@
 
 # gomadore
 
-**gomadore** (GO MArkDOwn REnderer) is a lightweight, high-performance Markdown web server written in Go (1.25+).
+**gomadore** (GO MArkDOwn REnderer) is a lightweight, high-performance Markdown web server written in Go (1.26+).
 
 > **Note:** "gomadore" stands for **Goma Dressing**. ("goma" means sesame in Japanese)
 
@@ -28,7 +28,7 @@ It is designed to serve Markdown files as HTML on-the-fly (Server-Side Rendering
 
 ## Prerequisites
 
-* **Go 1.25** or higher
+* **Go 1.26** or higher
 
 ## Installation (easy)
 

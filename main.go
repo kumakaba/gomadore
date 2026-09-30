@@ -37,7 +37,7 @@ import (
 
 var (
 	Version    = "v1.3.1"            // VERSION_STR
-	Revision   = "preview-20260915a" // VERSION_STR
+	Revision   = "preview-20260930a" // VERSION_STR
 	Maintainer = "kumakaba"
 )
 
@@ -540,28 +540,27 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	// --- Markdown File Processing ---
 
-	// Construct file system path
-	// Use filepath.FromSlash to ensure compatibility with Windows if needed (though running in container usually implies Linux)
-	staticPath := filepath.Join(s.config.HTML.MarkdownRootDir, filepath.FromSlash(reqPath))
-	fullPath := staticPath + ".md"
-
+	// Construct and validate file system path within configured markdown root
 	absRoot, err := filepath.Abs(s.config.HTML.MarkdownRootDir)
 	if err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
-	absPath, err := filepath.Abs(fullPath)
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
+	absRoot = filepath.Clean(absRoot)
 
-	rel, err := filepath.Rel(absRoot, absPath)
+	relReqPath := strings.TrimPrefix(reqPath, "/")
+	candidatePath := filepath.Join(absRoot, filepath.FromSlash(relReqPath)) + ".md"
+
+	absPath, err := filepath.Abs(candidatePath)
 	if err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+	absPath = filepath.Clean(absPath)
+
+	// Ensure candidate path stays within markdown root
+	rootWithSep := absRoot + string(os.PathSeparator)
+	if absPath != absRoot && !strings.HasPrefix(absPath, rootWithSep) {
 		slog.Info("Attack attempt detected", "path", r.URL.Path, "remote_addr", r.RemoteAddr)
 		http.NotFound(w, r)
 		return
