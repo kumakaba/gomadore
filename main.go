@@ -37,7 +37,7 @@ import (
 
 var (
 	Version    = "v1.3.1"            // VERSION_STR
-	Revision   = "preview-20260930b" // VERSION_STR
+	Revision   = "preview-20260930c" // VERSION_STR
 	Maintainer = "kumakaba"
 )
 
@@ -540,39 +540,48 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	// --- Markdown File Processing ---
 
-	// Construct and validate file system path within configured markdown root
-	absRoot, err := filepath.Abs(s.config.HTML.MarkdownRootDir)
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-	absRoot = filepath.Clean(absRoot)
-
+	// Construct relative path for fs.FS (must be unslashed relative path without leading slash)
 	relReqPath := strings.TrimPrefix(reqPath, "/")
-	candidatePath := filepath.Join(absRoot, filepath.FromSlash(relReqPath)) + ".md"
+	fsPath := relReqPath + ".md"
 
-	absPath, err := filepath.Abs(candidatePath)
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-	absPath = filepath.Clean(absPath)
-
-	// Ensure candidate path stays within markdown root
-	relToRoot, err := filepath.Rel(absRoot, absPath)
-	if err != nil || relToRoot == ".." || strings.HasPrefix(relToRoot, ".."+string(os.PathSeparator)) || filepath.IsAbs(relToRoot) {
+	// Security Check: Clean path and prevent traversal
+	// io/fs.ValidPath requires forward slashes and no leading "/" or ".."
+	fsPath = path.Clean(fsPath)
+	if !fs.ValidPath(fsPath) || strings.HasPrefix(fsPath, "../") || fsPath == ".." {
 		slog.Info("Attack attempt detected", "path", r.URL.Path, "remote_addr", r.RemoteAddr)
 		http.NotFound(w, r)
 		return
 	}
 
-	// Check if file exists
-	mdContent, err := os.ReadFile(absPath)
+	// Create a constrained filesystem rooted at MarkdownRootDir
+	rootFS := os.DirFS(s.config.HTML.MarkdownRootDir)
+
+	// Open and check file
+	f, err := rootFS.Open(fsPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			http.NotFound(w, r)
 			return
 		}
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+
+	// Get file info
+	fileInfo, err := f.Stat()
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	if fileInfo.IsDir() {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Read content
+	mdContent, err := io.ReadAll(f)
+	if err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
@@ -587,17 +596,6 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 	// Parse to AST
 	reader := text.NewReader(mdContent)
 	doc := s.md.Parser().Parse(reader)
-
-	// Get markdown file info for DocumentDate
-	fileInfo, err := os.Stat(absPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			http.NotFound(w, r)
-			return
-		}
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
 
 	// Prepare time strings (RFC3339 is compatible with JS Date constructor)
 	now := time.Now()
